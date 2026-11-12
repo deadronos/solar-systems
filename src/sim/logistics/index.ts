@@ -12,3 +12,4 @@ export { createWorld } from './createWorld.ts';
 export { askPrice, bidPrice, maxBuyQty, priceFor } from './economy/markets.ts';
 export { applyCommand, cargoMass, removeShip, type Command } from './core/commands.ts';
 export { inboundQty } from './economy/contracts.ts';
+export { netWorth, spawnEntrant } from './economy/companies.ts';
