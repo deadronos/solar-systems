@@ -2,12 +2,15 @@ import { OrbitControls } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useRef, type ComponentRef } from 'react';
 import { AU_KM, type BodyDefinition } from '../../sim/index.ts';
+import { useSelectionStore } from '../../state/selectionStore.ts';
 import { useViewStore } from '../../state/viewStore.ts';
 import { UNITS_PER_KM } from '../coords.ts';
 import { useSimulation } from '../SimulationContext.tsx';
 import { PRIORITY_SCENE } from './SimDriver.tsx';
 
 const TRANSITION_SECONDS = 1.4;
+/** Camera distance when following a ship (scene units = 1M km). */
+const SHIP_VIEW_UNITS = 3;
 
 /** Good viewing distance when focusing a body (scene units). */
 function viewDistance(def: BodyDefinition): number {
@@ -27,6 +30,9 @@ export function CameraRig() {
   const camera = useThree((s) => s.camera);
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   const focusId = useViewStore((s) => s.focusId);
+  const follow = useSelectionStore((s) => s.follow);
+  const followed = useSelectionStore((s) => (s.follow ? s.selected : null));
+  const followKey = followed ? `${followed.kind}:${followed.id}` : '';
   const anim = useRef<{ from: number; to: number; t: number; minDistance: number } | null>(null);
 
   useEffect(() => {
@@ -41,6 +47,31 @@ export function CameraRig() {
       minDistance: def.radiusKm * UNITS_PER_KM * 1.15,
     };
   }, [focusId, sim, camera]);
+
+  // Following a ship/settlement: glide to a viewing distance suited to it.
+  useEffect(() => {
+    const c = controls.current;
+    if (!c || !followKey || !followed) return;
+    const world = sim.logistics;
+    let to = SHIP_VIEW_UNITS;
+    let min = 1e-6;
+    if (followed.kind === 'settlement') {
+      const s = world?.settlements.get(followed.id);
+      const body = s ? sim.ephemeris.get(s.site.bodyId) : undefined;
+      if (body) {
+        to = viewDistance(body);
+        min = body.radiusKm * UNITS_PER_KM * 1.15;
+      }
+    } else if (followed.kind === 'body' && sim.ephemeris.has(followed.id)) {
+      const body = sim.ephemeris.get(followed.id);
+      to = viewDistance(body);
+      min = body.radiusKm * UNITS_PER_KM * 1.15;
+    }
+    c.minDistance = 1e-9;
+    anim.current = { from: camera.position.length(), to, t: 0, minDistance: min };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followKey, sim, camera]);
+  void follow;
 
   useFrame((_, dt) => {
     const a = anim.current;

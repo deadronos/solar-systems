@@ -314,3 +314,88 @@ button {
     justify-content: center;
   }
 }
+
+/* Logistics markers */
+.marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: auto;
+  background: none;
+  border: 0;
+  padding: 0;
+  will-change: transform;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.marker--ship {
+  transform-origin: 0 0;
+  margin: -5px 0 0 -5px;
+}
+
+.ship-marker {
+  width: 9px;
+  height: 9px;
+  background: var(--c);
+  transform: rotate(45deg);
+  box-shadow: 0 0 6px var(--c);
+  border: 1px solid rgb(0 0 0 / 0.6);
+}
+
+.ship-marker__name {
+  display: none;
+  font-size: 10px;
+  color: var(--text);
+  text-shadow:
+    0 0 3px #000,
+    0 0 6px #000;
+}
+
+.marker--ship:hover .ship-marker__name,
+.marker--selected .ship-marker__name {
+  display: inline;
+}
+
+.marker--selected .ship-marker {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.site-marker {
+  font-size: 10px;
+  color: #ffe2a8;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgb(40 30 10 / 0.55);
+  border: 1px solid rgb(255 207 112 / 0.35);
+  text-shadow: 0 0 3px #000;
+}
+
+.site-marker--orbit {
+  border-style: dashed;
+}
+
+.marker--settlement {
+  margin-left: 6px;
+}
+
+.marker--selected .site-marker {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.marker[data-health='ok'] .site-marker {
+  border-color: #6fcf8f;
+}
+
+.marker[data-health='warn'] .site-marker {
+  border-color: #f2c14e;
+}
+
+.marker[data-health='bad'] .site-marker {
+  border-color: #ef5350;
+  color: #ffb3b0;
+}

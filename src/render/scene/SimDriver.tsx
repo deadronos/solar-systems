@@ -1,6 +1,8 @@
 import { useFrame } from '@react-three/fiber';
 import { copy } from '../../sim/index.ts';
+import { useSelectionStore } from '../../state/selectionStore.ts';
 import { useViewStore } from '../../state/viewStore.ts';
+import { resolveFocusPosition } from '../logistics/focus.ts';
 import { useRenderFrame, useSimulation } from '../SimulationContext.tsx';
 
 /** Frame priorities: the driver runs first, then everything that reads sim state. */
@@ -14,7 +16,9 @@ export function SimDriver() {
   useFrame((_, dt) => {
     sim.step(dt);
     const { focusId } = useViewStore.getState();
-    copy(frame.origin, sim.ephemeris.position(focusId));
+    const { follow, selected } = useSelectionStore.getState();
+    if (follow && selected) resolveFocusPosition(sim, selected, focusId, frame.origin);
+    else copy(frame.origin, sim.ephemeris.position(focusId));
   }, PRIORITY_SIM);
   return null;
 }
