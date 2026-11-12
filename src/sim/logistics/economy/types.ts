@@ -89,6 +89,8 @@ export interface Satisfaction {
 
 export interface Settlement extends SettlementDef {
   market: Record<GoodId, MarketEntry>;
+  /** Per-tick demand/supply accumulators (tonnes), folded into market EMAs each tick. */
+  flows: { demand: Partial<Record<GoodId, number>>; supply: Partial<Record<GoodId, number>> };
   satisfaction: Satisfaction;
   inShortage: boolean;
   lastMilestone: number;

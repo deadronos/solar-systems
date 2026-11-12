@@ -185,8 +185,11 @@ function createSettlement(def: SettlementDef, world: LogisticsWorld): Settlement
   }
   return {
     ...def,
+    // Earth's economy never runs out of money.
+    treasury: def.isDeepMarket ? Number.POSITIVE_INFINITY : def.treasury,
     facilities: def.facilities.map((f) => ({ ...f })),
     market,
+    flows: { demand: {}, supply: {} },
     satisfaction: { survival: 1, basic: 1, comfort: 1 },
     inShortage: false,
     lastMilestone: Math.floor(def.population / 10_000),
