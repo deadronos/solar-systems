@@ -43,6 +43,12 @@
       "rules": {
         "no-restricted-imports": "off"
       }
+    },
+    {
+      "files": ["**/*.test.ts"],
+      "rules": {
+        "unicorn/consistent-function-scoping": "off"
+      }
     }
   ],
   "ignorePatterns": ["dist"]
