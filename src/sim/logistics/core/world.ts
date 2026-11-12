@@ -18,6 +18,7 @@ import {
   type ShipClass,
 } from '../economy/types.ts';
 import { EventLog } from './events.ts';
+import type { CompanyController } from '../controllers/types.ts';
 import { NavContext } from '../navigation/planner.ts';
 import { applyCommand, type Command } from './commands.ts';
 import { Scheduler } from './scheduler.ts';
@@ -46,6 +47,8 @@ export class LogisticsWorld {
   readonly companies = new Map<string, Company>();
   readonly ships = new Map<string, Ship>();
   readonly contracts = new Map<string, Contract>();
+  /** Decision makers per company (AI brain by default; a player controller later). */
+  readonly controllers = new Map<string, CompanyController>();
   #ids = new Map<string, number>();
   #nav: NavContext | null = null;
   readonly ephemeris: Ephemeris;
@@ -125,6 +128,10 @@ export class LogisticsWorld {
   /** Navigation context (lazily created; caches launch-window grids). */
   get nav(): NavContext {
     return (this.#nav ??= new NavContext(this.ephemeris));
+  }
+
+  setController(companyId: string, controller: CompanyController): void {
+    this.controllers.set(companyId, controller);
   }
 
   /** Apply commands from a company's controller in order. Returns per-command success. */

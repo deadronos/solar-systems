@@ -1,4 +1,6 @@
 import type { Ephemeris } from '../world/ephemeris.ts';
+import { installControllers } from './controllers/runner.ts';
+import type { CompanyController } from './controllers/types.ts';
 import { runShips } from './core/commands.ts';
 import { LogisticsWorld, sortedIds } from './core/world.ts';
 import { runCompanies } from './economy/companies.ts';
@@ -10,9 +12,18 @@ import type { ScenarioConfig } from './economy/types.ts';
 
 /**
  * Build a world and install every system in the fixed tick order:
- * production → population → markets (later: contracts, companies, controllers).
+ * production → population → markets → contracts → ships → companies → controllers.
  */
-export function createWorld(config: ScenarioConfig, ephemeris: Ephemeris): LogisticsWorld {
+export interface CreateWorldOptions {
+  /** Install company controllers (AI brains by default). Set false for economy-only tests. */
+  controllers?: boolean | ((companyId: string) => CompanyController);
+}
+
+export function createWorld(
+  config: ScenarioConfig,
+  ephemeris: Ephemeris,
+  options: CreateWorldOptions = {},
+): LogisticsWorld {
   const world = new LogisticsWorld(config, ephemeris);
   const settlementIds = () => sortedIds(world.settlements);
   for (const id of settlementIds()) initMarketRates(world.settlements.get(id)!, world);
@@ -28,5 +39,7 @@ export function createWorld(config: ScenarioConfig, ephemeris: Ephemeris): Logis
   world.addPhase('contracts', (w) => generateContracts(w));
   world.addPhase('ships', (w, dt) => runShips(w, dt, sortedIds(w.ships)));
   world.addPhase('companies', (w) => runCompanies(w));
+  const ctl = options.controllers ?? false;
+  if (ctl) installControllers(world, typeof ctl === 'function' ? ctl : undefined);
   return world;
 }
