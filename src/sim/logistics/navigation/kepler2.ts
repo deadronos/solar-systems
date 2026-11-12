@@ -39,9 +39,22 @@ export function propagateUniversal(
   const alpha = 2 / r0m - v0m2 / mu;
   const sqrtMu = Math.sqrt(mu);
 
-  let chi = sqrtMu * Math.abs(alpha) * dtSeconds;
-  if (!Number.isFinite(chi) || chi === 0) chi = (sqrtMu * dtSeconds) / r0m;
-  for (let k = 0; k < 100; k++) {
+  // Initial guess (Vallado, Algorithm 8).
+  let chi: number;
+  if (alpha > 1e-9) {
+    chi = sqrtMu * dtSeconds * alpha;
+  } else if (alpha < -1e-9) {
+    const a = 1 / alpha;
+    const sgn = Math.sign(dtSeconds) || 1;
+    const rdotv = r0m * vr0;
+    const arg =
+      (-2 * mu * alpha * dtSeconds) / (rdotv + sgn * Math.sqrt(-mu * a) * (1 - r0m * alpha));
+    chi = sgn * Math.sqrt(-a) * Math.log(Math.max(arg, 1e-12));
+  } else {
+    chi = (sqrtMu * dtSeconds) / r0m;
+  }
+  if (!Number.isFinite(chi)) chi = (sqrtMu * dtSeconds) / r0m;
+  for (let k = 0; k < 200; k++) {
     const z = alpha * chi * chi;
     const C = stumpffC(z);
     const S = stumpffS(z);
@@ -54,9 +67,13 @@ export function propagateUniversal(
       ((r0m * vr0) / sqrtMu) * chi * (1 - alpha * chi * chi * S) +
       (1 - alpha * r0m) * chi * chi * C +
       r0m;
-    const step = F / dF;
+    let step = F / dF;
+    if (!Number.isFinite(step)) break;
+    // Damp huge steps (protects the hyperbolic branch from overflow in cosh/sinh).
+    const limit = Math.max(1, Math.abs(chi));
+    if (Math.abs(step) > limit) step = Math.sign(step) * limit;
     chi -= step;
-    if (Math.abs(step) < 1e-8) break;
+    if (Math.abs(step) < 1e-9 * Math.max(1, Math.abs(chi))) break;
   }
   const z = alpha * chi * chi;
   const f = 1 - ((chi * chi) / r0m) * stumpffC(z);

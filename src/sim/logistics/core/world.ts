@@ -164,7 +164,7 @@ export class LogisticsWorld {
 }
 
 /** Sorted keys for deterministic iteration. */
-export const sortedIds = <T>(map: ReadonlyMap<string, T>): string[] => [...map.keys()].sort();
+export const sortedIds = <T>(map: ReadonlyMap<string, T>): string[] => [...map.keys()].toSorted();
 
 function createSettlement(def: SettlementDef, world: LogisticsWorld): Settlement {
   const market = {} as Record<GoodId, MarketEntry>;
