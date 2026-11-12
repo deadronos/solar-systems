@@ -54,7 +54,7 @@ export const SHIP_CLASSES: ShipClass[] = [
     accelG: 0.03,
     fuelTPerKmS: 0.15,
     price: 320_000_000,
-    upkeepPerDay: 30_000,
+    upkeepPerDay: 12_000,
     buildDays: 200,
   },
   {
@@ -65,7 +65,7 @@ export const SHIP_CLASSES: ShipClass[] = [
     accelG: 0.3,
     fuelTPerKmS: 0.02,
     price: 220_000_000,
-    upkeepPerDay: 25_000,
+    upkeepPerDay: 8_000,
     buildDays: 180,
   },
   {
@@ -78,7 +78,7 @@ export const SHIP_CLASSES: ShipClass[] = [
     fuelTPerKmS: 0,
     exoticCostPerKmS: 250,
     price: 900_000_000,
-    upkeepPerDay: 80_000,
+    upkeepPerDay: 20_000,
     buildDays: 365,
   },
   {
@@ -91,7 +91,7 @@ export const SHIP_CLASSES: ShipClass[] = [
     fuelTPerKmS: 0,
     exoticCostPerJump: 8_000_000,
     price: 2_500_000_000,
-    upkeepPerDay: 200_000,
+    upkeepPerDay: 40_000,
     buildDays: 500,
   },
 ];

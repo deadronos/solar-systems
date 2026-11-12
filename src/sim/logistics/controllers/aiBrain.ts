@@ -163,6 +163,10 @@ export class AiBrain implements CompanyController {
     }
     if (c.kind === 'freight') {
       if (here === c.pickupSettlementId) {
+        if (cargoMass(ship) + c.qty > view.shipClass(ship.classId).cargoT) {
+          this.#giveUp(view, ship, c, cmds);
+          return;
+        }
         cmds.push({ type: 'LoadContractCargo', contractId: c.id });
         if (this.#dispatch(view, ship, c.settlementId, cmds)) view.setIntent(ship.id, label);
       } else if (c.pickupSettlementId && this.#dispatch(view, ship, c.pickupSettlementId, cmds)) {
@@ -177,6 +181,10 @@ export class AiBrain implements CompanyController {
     }
     // Delivery contract: source the goods (never at the destination itself).
     const need = c.qty - held;
+    if (cargoMass(ship) + need > view.shipClass(ship.classId).cargoT) {
+      this.#giveUp(view, ship, c, cmds);
+      return;
+    }
     if (here !== c.settlementId && this.#spare(view, here, c.good) >= need) {
       const ask = view.ask(here, c.good);
       if (ask * need <= this.#available(view)) {
@@ -193,7 +201,7 @@ export class AiBrain implements CompanyController {
         }
       }
     }
-    const src = this.#cheapestSource(view, c.good, need, c.settlementId);
+    const src = this.#landedSource(view, ship, c.good, need, c.settlementId);
     if (src && src !== here && this.#dispatch(view, ship, src, cmds)) {
       view.setIntent(ship.id, `${label} (buying at ${view.settlement(src)?.name})`);
       return;
@@ -304,7 +312,7 @@ export class AiBrain implements CompanyController {
 
     // A) Contracts.
     for (const c of view.openContracts()) {
-      if (reservedContracts.has(c.id) || c.qty > cls.cargoT) continue;
+      if (reservedContracts.has(c.id) || c.qty > cls.cargoT - cargoMass(ship)) continue;
       const legs: [string, string][] = [];
       let purchase = 0;
       let first: string;
@@ -314,16 +322,27 @@ export class AiBrain implements CompanyController {
         if (here !== first) legs.push([here, first]);
         legs.push([first, c.settlementId]);
       } else {
-        const src =
-          here !== c.settlementId && this.#spare(view, here, c.good) >= c.qty
-            ? here
-            : this.#cheapestSource(view, c.good, c.qty, c.settlementId);
-        if (!src) continue;
-        first = src;
-        purchase = view.ask(src, c.good) * c.qty;
+        // Source by landed cost for this ship: goods + getting there + hauling to the buyer.
+        let best: { src: string; cost: number; legs: [string, string][] } | null = null;
+        for (const s2 of view.settlements()) {
+          if (s2.id === c.settlementId || this.#spare(view, s2.id, c.good) < c.qty) continue;
+          const l: [string, string][] =
+            s2.id === here
+              ? [[here, c.settlementId]]
+              : [
+                  [here, s2.id],
+                  [s2.id, c.settlementId],
+                ];
+          const t = this.#legs(view, ship, l);
+          if (!t || view.jd + t.days > c.deadlineJd) continue;
+          const cost = view.ask(s2.id, c.good) * c.qty + t.cost;
+          if (!best || cost < best.cost) best = { src: s2.id, cost, legs: l };
+        }
+        if (!best) continue;
+        first = best.src;
+        purchase = view.ask(best.src, c.good) * c.qty;
         if (purchase > cash) continue;
-        if (here !== src) legs.push([here, src]);
-        legs.push([src, c.settlementId]);
+        legs.push(...best.legs);
       }
       const trip = this.#legs(view, ship, legs);
       if (!trip || view.jd + trip.days > c.deadlineJd) continue;
@@ -482,12 +501,25 @@ export class AiBrain implements CompanyController {
     return e.stock - 0.5 * e.targetStock;
   }
 
-  #cheapestSource(view: CompanyView, good: GoodId, qty: number, exclude: string): string | null {
-    let best: { id: string; ask: number } | null = null;
+  /** Source minimising goods cost + travel cost for this ship (then on to `dest`). */
+  #landedSource(
+    view: CompanyView,
+    ship: Readonly<Ship>,
+    good: GoodId,
+    qty: number,
+    dest: string,
+  ): string | null {
+    const here = ship.siteId!;
+    let best: { id: string; cost: number } | null = null;
     for (const s of view.settlements()) {
-      if (s.id === exclude || this.#spare(view, s.id, good) < qty) continue;
-      const ask = view.ask(s.id, good);
-      if (!best || ask < best.ask) best = { id: s.id, ask };
+      if (s.id === dest || s.id === here || this.#spare(view, s.id, good) < qty) continue;
+      const t = this.#legs(view, ship, [
+        [here, s.id],
+        [s.id, dest],
+      ]);
+      if (!t) continue;
+      const cost = view.ask(s.id, good) * qty + t.cost;
+      if (!best || cost < best.cost) best = { id: s.id, cost };
     }
     return best?.id ?? null;
   }

@@ -186,6 +186,9 @@ export class LogisticsWorld {
   }
 }
 
+/** Days of survival supplies every settlement starts with (at least). */
+const INITIAL_RESERVE_DAYS = 365;
+
 /** Sorted keys for deterministic iteration. */
 export const sortedIds = <T>(map: ReadonlyMap<string, T>): string[] => [...map.keys()].toSorted();
 
@@ -194,9 +197,11 @@ function createSettlement(def: SettlementDef, world: LogisticsWorld): Settlement
   for (const g of GOOD_IDS) {
     const base = world.goods.get(g)?.basePrice ?? 0;
     const factor = def.deepPriceFactors?.[g] ?? 1;
+    // Every settlement starts with at least a year of survival supplies.
+    const survivalNeed = world.config.constants.needsPerCapitaPerDay.survival[g] ?? 0;
     const stock = def.isDeepMarket
       ? world.config.constants.deepMarketStock
-      : (def.initialStock[g] ?? 0);
+      : Math.max(def.initialStock[g] ?? 0, def.population * survivalNeed * INITIAL_RESERVE_DAYS);
     market[g] = {
       stock,
       targetStock: stock,
@@ -215,6 +220,7 @@ function createSettlement(def: SettlementDef, world: LogisticsWorld): Settlement
     flows: { demand: {}, supply: {} },
     satisfaction: { survival: 1, basic: 1, comfort: 1 },
     inShortage: false,
+    orderEscalation: {},
     lastMilestone: Math.floor(def.population / 10_000),
   };
 }

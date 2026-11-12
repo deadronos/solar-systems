@@ -31,30 +31,58 @@ const scenario = (settlements: SettlementDef[], companies: CompanyDef[] = []): S
   companies,
 });
 
+/** Colonies start with a year of survival stock; tests empty the food store. */
+const starve = (w: ReturnType<typeof createWorld>, id = 'col') => {
+  w.settlements.get(id)!.market.food.stock = 0;
+  return w;
+};
+
 const open = (w: ReturnType<typeof createWorld>, good: string) =>
   [...w.contracts.values()].filter((c) => c.good === good && c.status === 'open');
 
 describe('contracts', () => {
-  it('a shortage posts exactly one delivery contract per good', () => {
-    const w = createWorld(scenario([colony()]), eph);
+  it('a shortage posts one order per good per day until the shortfall is covered', () => {
+    const w = starve(createWorld(scenario([colony()]), eph));
     w.advanceTo(START_JD + 1);
     expect(open(w, 'food')).toHaveLength(1);
     expect(open(w, 'food')[0]!.kind).toBe('delivery');
-    w.advanceTo(START_JD + 5);
-    expect(open(w, 'food')).toHaveLength(1);
-    expect(
-      w.events.recent(1000).filter((e) => e.type === 'ContractPosted' && e.good === 'food'),
-    ).toHaveLength(1);
+    expect(open(w, 'food')[0]!.qty).toBeLessThanOrEqual(800);
+    w.advanceTo(START_JD + 3);
+    expect(open(w, 'food')).toHaveLength(3);
+    w.advanceTo(START_JD + 40);
+    const covered = open(w, 'food').reduce((a, c) => a + c.qty, 0);
+    w.advanceTo(START_JD + 45);
+    expect(open(w, 'food').reduce((a, c) => a + c.qty, 0)).toBe(covered);
   });
 
-  it('chooses freight when a cheaper source exists and pays the source up front', () => {
-    const w = createWorld(scenario([earth, colony()]), eph);
+  it('chooses freight from a cheap nearby source and pays the source up front', () => {
+    const farm = colony({
+      id: 'farm',
+      name: 'Farm',
+      site: { bodyId: 'phobos', kind: 'surface' },
+      population: 100,
+      facilities: [{ recipeId: 'grow_food', maxRatePerDay: 50 }],
+      initialStock: { water: 1e6, oxygen: 1e5, food: 50_000 },
+    });
+    const w = starve(createWorld(scenario([earth, colony(), farm]), eph));
     const treasury0 = w.settlements.get('col')!.treasury;
     w.advanceTo(START_JD + 1);
     const c = open(w, 'food')[0]!;
     expect(c.kind).toBe('freight');
-    expect(c.pickupSettlementId).toBe('earth-exchange');
+    expect(c.pickupSettlementId).toBe('farm');
     expect(w.settlements.get('col')!.treasury).toBeLessThan(treasury0);
+  });
+
+  it('buys directly from a same-body neighbour without a ship', () => {
+    const station = colony({
+      id: 'station',
+      name: 'Station',
+      site: { bodyId: 'earth', kind: 'orbit' },
+    });
+    const w = starve(createWorld(scenario([earth, station]), eph), 'station');
+    w.advanceTo(START_JD + 1);
+    expect(w.settlements.get('station')!.market.food.stock).toBeGreaterThan(0);
+    expect(w.events.recent(100).some((e) => e.type === 'LocalShuttle')).toBe(true);
   });
 
   it('a broke settlement posts nothing', () => {
@@ -76,7 +104,7 @@ describe('contracts', () => {
       cash: 1e9,
       ships: [{ classId: 'chem-tug', siteId: 'col', name: 'x' }],
     };
-    const w = createWorld(scenario([colony()], [company]), eph);
+    const w = starve(createWorld(scenario([colony()], [company]), eph));
     w.advanceTo(START_JD + 1);
     const c = open(w, 'food')[0]!;
     const ship = [...w.ships.values()][0]!;
@@ -101,7 +129,7 @@ describe('contracts', () => {
       cash: 1e9,
       ships: [{ classId: 'chem-tug', siteId: 'col', name: 'x' }],
     };
-    const w = createWorld(scenario([colony()], [company]), eph);
+    const w = starve(createWorld(scenario([colony()], [company]), eph));
     w.advanceTo(START_JD + 1);
     const c = open(w, 'food')[0]!;
     const ship = [...w.ships.values()][0]!;

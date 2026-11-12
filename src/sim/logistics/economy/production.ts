@@ -2,15 +2,25 @@ import type { LogisticsWorld } from '../core/world.ts';
 import { addDemand, addSupply } from './markets.ts';
 import type { Settlement } from './types.ts';
 
+const producesSurvival = (world: LogisticsWorld, recipeId: string): boolean =>
+  world.recipes
+    .get(recipeId)
+    ?.outputs.some((o) => world.goods.get(o.good)?.category === 'survival') ?? false;
+
 /**
- * Run each facility in declared order. Output is limited by capacity, available workers
+ * Run facilities (life support first, otherwise in declared order). Output is limited by capacity, available workers
  * and input stock. Nominal input demand is recorded even when inputs are missing, so
  * shortages show up as high prices.
  */
 export function runProduction(s: Settlement, world: LogisticsWorld, dtDays: number): void {
   if (s.isDeepMarket) return;
   let workers = s.population * world.constants.workforceFraction;
-  for (const f of s.facilities) {
+  // Life support first: recipes that output survival goods get workers and inputs first.
+  const survivalFirst = s.facilities.toSorted(
+    (a, b) =>
+      Number(producesSurvival(world, b.recipeId)) - Number(producesSurvival(world, a.recipeId)),
+  );
+  for (const f of survivalFirst) {
     const recipe = world.recipes.get(f.recipeId);
     if (!recipe) continue;
     let rate = f.maxRatePerDay;

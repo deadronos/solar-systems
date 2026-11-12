@@ -236,6 +236,8 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (ship.contractId) reject('ship-has-contract');
       if (ship.state === 'building' || ship.pendingRemoval) reject('ship-unavailable');
       contract.status = 'accepted';
+      const buyer = world.settlements.get(contract.settlementId);
+      if (buyer) delete buyer.orderEscalation[contract.good];
       contract.companyId = companyId;
       contract.shipId = ship.id;
       ship.contractId = contract.id;

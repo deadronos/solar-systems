@@ -100,6 +100,14 @@ export type EventPayload =
   | { type: 'ShipDelivered'; shipId: string; companyId: string; settlementId: string }
   | { type: 'ShipSold'; shipId: string; companyId: string; settlementId?: string; value: number }
   | { type: 'ShipRemoved'; shipId: string; companyId: string }
+  | {
+      type: 'LocalShuttle';
+      settlementId: string;
+      pickupSettlementId: string;
+      good: string;
+      qty: number;
+      cost: number;
+    }
   | { type: 'PriceChanged'; settlementId: string; good: string; from: number; to: number }
   | { type: 'Shortage'; settlementId: string; tier: 'survival' }
   | { type: 'ShortageResolved'; settlementId: string; tier: 'survival' }

@@ -17,3 +17,4 @@ export { AiBrain, riskAdjustedProfit } from './controllers/aiBrain.ts';
 export { installControllers } from './controllers/runner.ts';
 export { createCompanyView } from './controllers/view.ts';
 export type * from './controllers/types.ts';
+export { StatsRecorder, type Sample, type StatKey } from './economy/stats.ts';

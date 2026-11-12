@@ -94,6 +94,8 @@ export interface Settlement extends SettlementDef {
   satisfaction: Satisfaction;
   inShortage: boolean;
   lastMilestone: number;
+  /** Fee multiplier per good, raised each time an order expires unfilled (reset on acceptance). */
+  orderEscalation: Partial<Record<GoodId, number>>;
 }
 
 export interface ShipClass {
