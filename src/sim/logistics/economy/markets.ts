@@ -5,6 +5,18 @@ import { GOOD_IDS, type EconomyConstants, type MarketEntry, type Settlement } fr
 const MAX_STOCK_MULTIPLE = 3;
 /** Price change (fraction) that triggers a PriceChanged event. */
 const ANNOUNCE_THRESHOLD = 0.25;
+/** Producers keep this many days of their own output before stock counts as surplus. */
+const PRODUCER_BUFFER_DAYS = 15;
+
+/** Desired stock: own needs for the buffer period plus a short buffer of own output. */
+export const targetFor = (
+  consumptionPerDay: number,
+  productionPerDay: number,
+  bufferDays: number,
+): number => {
+  const t = consumptionPerDay * bufferDays + productionPerDay * PRODUCER_BUFFER_DAYS;
+  return t > 1e-6 ? Math.max(1, t) : 0;
+};
 
 export function priceFor(
   basePrice: number,
@@ -67,9 +79,9 @@ export function updateMarket(s: Settlement, world: LogisticsWorld, dtDays: numbe
     const supply = (s.flows.supply[g] ?? 0) / dtDays;
     e.consumptionPerDay += (demand - e.consumptionPerDay) * k;
     e.productionPerDay += (supply - e.productionPerDay) * k;
-    const flow = e.consumptionPerDay + e.productionPerDay;
-    e.targetStock = flow > 1e-6 ? Math.max(1, flow * c.bufferDays) : 0;
-    e.price = flow > 1e-6 ? priceFor(base, e.stock, e.targetStock, c) : base * c.priceClampMin;
+    e.targetStock = targetFor(e.consumptionPerDay, e.productionPerDay, c.bufferDays);
+    e.price =
+      e.targetStock > 0 ? priceFor(base, e.stock, e.targetStock, c) : base * c.priceClampMin;
     if (Math.abs(e.price / e.lastAnnouncedPrice - 1) > ANNOUNCE_THRESHOLD) {
       world.events.append(world.jd, {
         type: 'PriceChanged',
@@ -109,9 +121,9 @@ export function initMarketRates(s: Settlement, world: LogisticsWorld): void {
   for (const g of GOOD_IDS) {
     const e = s.market[g];
     const base = world.goods.get(g)?.basePrice ?? 0;
-    const flow = e.consumptionPerDay + e.productionPerDay;
-    e.targetStock = flow > 1e-6 ? Math.max(1, flow * c.bufferDays) : 0;
-    e.price = flow > 1e-6 ? priceFor(base, e.stock, e.targetStock, c) : base * c.priceClampMin;
+    e.targetStock = targetFor(e.consumptionPerDay, e.productionPerDay, c.bufferDays);
+    e.price =
+      e.targetStock > 0 ? priceFor(base, e.stock, e.targetStock, c) : base * c.priceClampMin;
     e.lastAnnouncedPrice = e.price;
   }
 }

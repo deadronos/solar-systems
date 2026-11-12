@@ -71,6 +71,11 @@ export class SimClock {
     this.#emit();
   }
 
+  /** Move the clock without notifying listeners (used when the economy lags behind). */
+  syncTo(jd: number): void {
+    this.#jd = jd;
+  }
+
   resetToNow(): void {
     this.setJd(dateToJd(new Date()));
   }

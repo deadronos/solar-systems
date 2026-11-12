@@ -19,6 +19,7 @@ import {
 } from '../economy/types.ts';
 import { EventLog } from './events.ts';
 import type { CompanyController } from '../controllers/types.ts';
+import type { StatsRecorder } from '../economy/stats.ts';
 import { NavContext } from '../navigation/planner.ts';
 import { applyCommand, type Command } from './commands.ts';
 import { Scheduler } from './scheduler.ts';
@@ -49,6 +50,8 @@ export class LogisticsWorld {
   readonly contracts = new Map<string, Contract>();
   /** Decision makers per company (AI brain by default; a player controller later). */
   readonly controllers = new Map<string, CompanyController>();
+  /** Observer for charts and trade flows (installed by createWorld). */
+  stats: StatsRecorder | null = null;
   #ids = new Map<string, number>();
   #nav: NavContext | null = null;
   readonly ephemeris: Ephemeris;

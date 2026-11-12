@@ -44,7 +44,7 @@ export function solveLambert(
   let lo = -4 * Math.PI * Math.PI;
   for (let k = 0; k < 40 && F(lo) > 0; k++) lo *= 2;
   if (F(lo) > 0) return null;
-  const STEPS = 400;
+  const STEPS = 48;
   let hi = Number.NaN;
   for (let i = 1; i <= STEPS; i++) {
     const z = lo + ((Z_MAX - lo) * i) / STEPS;
@@ -55,11 +55,28 @@ export function solveLambert(
     lo = z;
   }
   if (Number.isNaN(hi)) return null;
-  for (let k = 0; k < 200; k++) {
-    const mid = 0.5 * (lo + hi);
-    if (F(mid) > 0) hi = mid;
-    else lo = mid;
-    if (hi - lo < 1e-12) break;
+  // Regula falsi (Illinois variant) on the bracket: converges in a handful of steps.
+  let fLo = F(lo);
+  let fHi = F(hi);
+  let side = 0;
+  for (let k = 0; k < 60; k++) {
+    const mid = (lo * fHi - hi * fLo) / (fHi - fLo);
+    const fMid = F(mid);
+    if (Math.abs(fMid) < 1e-9 * sqrtMuT || hi - lo < 1e-12) {
+      lo = hi = mid;
+      break;
+    }
+    if (fMid > 0) {
+      hi = mid;
+      fHi = fMid;
+      if (side === 1) fLo /= 2;
+      side = 1;
+    } else {
+      lo = mid;
+      fLo = fMid;
+      if (side === -1) fHi /= 2;
+      side = -1;
+    }
   }
   const z = hi;
   const yz = y(z);

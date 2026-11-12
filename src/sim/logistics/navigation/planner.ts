@@ -13,6 +13,9 @@ const G0_KM_S2 = 0.009_806_65;
 /** Hold durations (days). */
 const SURFACE_LEG_DAYS = 0.25;
 const SAME_BODY_DAYS = 0.5;
+/** Estimates are reused for this many days (launch windows move slowly). */
+const ESTIMATE_BUCKET_DAYS = 2;
+const GRID_REFRESH_DAYS = 120;
 /** Surface ascent/descent Δv as a multiple of circular speed at the surface. */
 const SURFACE_DV_FACTOR = 1.2;
 /** Low-orbit radius as a multiple of planet radius (local transfers start here). */
@@ -47,7 +50,8 @@ interface Cell {
 
 /**
  * Coarse launch-window grid per body pair (tiers 1–2): departure offsets over one synodic
- * period × times of flight. Refreshed once the grid start is more than 30 days old.
+ * period (+ refresh margin) × times of flight. Rebuilt once the grid start is
+ * GRID_REFRESH_DAYS old, so every query still sees a full synodic period ahead.
  */
 export class PorkchopCache {
   #grids = new Map<string, { start: number; cells: Cell[] }>();
@@ -60,7 +64,7 @@ export class PorkchopCache {
   cells(fromBody: string, toBody: string, earliestJd: number): Cell[] {
     const key = `${fromBody}>${toBody}`;
     const g = this.#grids.get(key);
-    if (g && earliestJd - g.start <= 30) return g.cells;
+    if (g && earliestJd - g.start <= GRID_REFRESH_DAYS) return g.cells;
     const start = Math.floor(earliestJd);
     const cells = this.#build(fromBody, toBody, start);
     this.#grids.set(key, { start, cells });
@@ -72,8 +76,9 @@ export class PorkchopCache {
     const { synodicDays, hohmannDays } = ctx.pairTimescales(fromBody, toBody);
     const cells: Cell[] = [];
     const nDep = 24;
+    const span = synodicDays + GRID_REFRESH_DAYS;
     for (let i = 0; i < nDep; i++) {
-      const departJd = start + (synodicDays * i) / nDep;
+      const departJd = start + (span * i) / nDep;
       for (const c of ctx.tofSweep(fromBody, toBody, departJd, hohmannDays)) cells.push(c);
     }
     return cells;
@@ -84,6 +89,8 @@ export class PorkchopCache {
 export class NavContext {
   readonly eph: Ephemeris;
   readonly porkchop: PorkchopCache;
+  #sweeps = new Map<string, Cell[]>();
+  #estimates = new Map<string, TripEstimate | null>();
 
   constructor(eph: Ephemeris) {
     this.eph = eph;
@@ -116,6 +123,48 @@ export class NavContext {
     const synodicDays = syn > 0 ? Math.min(900, 1 / syn / DAY) : 900;
     const hohmannDays = (Math.PI * Math.sqrt(((a1 + a2) / 2) ** 3 / MU_SUN_KM3_S2)) / DAY;
     return { synodicDays, hohmannDays };
+  }
+
+  /** Immediate-departure sweep, shared by all ship classes (cached per whole day). */
+  sweepFrom(fromBody: string, toBody: string, t0: number): Cell[] {
+    const day = Math.ceil(t0);
+    const key = `${fromBody}>${toBody}@${day}`;
+    let cells = this.#sweeps.get(key);
+    if (!cells) {
+      if (this.#sweeps.size > 5_000) this.#sweeps.clear();
+      cells = this.tofSweep(
+        fromBody,
+        toBody,
+        day,
+        this.pairTimescales(fromBody, toBody).hohmannDays,
+      );
+      this.#sweeps.set(key, cells);
+    }
+    return cells;
+  }
+
+  /**
+   * Trip estimate shared world-wide per (class, route, time bucket). Cached results that
+   * would depart in the past are shifted to depart now.
+   */
+  estimateCached(
+    cls: ShipClass,
+    from: Settlement,
+    to: Settlement,
+    jd: number,
+  ): TripEstimate | null {
+    const bucket = Math.floor(jd / ESTIMATE_BUCKET_DAYS);
+    const key = `${cls.id}|${from.id}|${to.id}|${bucket}`;
+    if (!this.#estimates.has(key)) {
+      if (this.#estimates.size > 20_000) this.#estimates.clear();
+      this.#estimates.set(key, estimateTrip(cls, from, to, jd, this));
+    }
+    const e = this.#estimates.get(key)!;
+    if (e && e.departJd < jd) {
+      const shift = jd - e.departJd;
+      return { ...e, departJd: e.departJd + shift, arriveJd: e.arriveJd + shift };
+    }
+    return e;
   }
 
   /** Lambert solutions for 16 times of flight at a given departure (heliocentric). */
@@ -226,7 +275,9 @@ function solveTrip(
       const t0 = earliestJd + ascentDays;
       const { hohmannDays } = ctx.pairTimescales(fromBody, toBody);
       const candidates = [
-        ...ctx.tofSweep(fromBody, toBody, t0, hohmannDays),
+        ...(withLegs
+          ? ctx.tofSweep(fromBody, toBody, t0, hohmannDays)
+          : ctx.sweepFrom(fromBody, toBody, t0)),
         ...ctx.porkchop.cells(fromBody, toBody, t0).filter((c) => c.departJd >= t0),
       ];
       let best: Cell | null = null;
