@@ -18,6 +18,8 @@ import {
   type ShipClass,
 } from '../economy/types.ts';
 import { EventLog } from './events.ts';
+import { NavContext } from '../navigation/planner.ts';
+import { applyCommand, type Command } from './commands.ts';
 import { Scheduler } from './scheduler.ts';
 import { JD_EPSILON, TICK_DAYS } from './time.ts';
 
@@ -45,6 +47,7 @@ export class LogisticsWorld {
   readonly ships = new Map<string, Ship>();
   readonly contracts = new Map<string, Contract>();
   #ids = new Map<string, number>();
+  #nav: NavContext | null = null;
   readonly ephemeris: Ephemeris;
   readonly events = new EventLog();
   #jd: number;
@@ -117,6 +120,16 @@ export class LogisticsWorld {
     const c = this.shipClasses.get(ship.classId);
     if (!c) throw new Error(`Unknown ship class "${ship.classId}"`);
     return c;
+  }
+
+  /** Navigation context (lazily created; caches launch-window grids). */
+  get nav(): NavContext {
+    return (this.#nav ??= new NavContext(this.ephemeris));
+  }
+
+  /** Apply commands from a company's controller in order. Returns per-command success. */
+  issue(companyId: string, cmds: Command[]): boolean[] {
+    return cmds.map((c) => applyCommand(this, companyId, c));
   }
 
   get constants() {

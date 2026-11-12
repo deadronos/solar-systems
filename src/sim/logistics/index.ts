@@ -10,3 +10,4 @@ export { evaluatePlan } from './navigation/plan.ts';
 export { NavContext, estimateTrip, planTrip, type TripEstimate } from './navigation/planner.ts';
 export { createWorld } from './createWorld.ts';
 export { askPrice, bidPrice, maxBuyQty, priceFor } from './economy/markets.ts';
+export { applyCommand, cargoMass, removeShip, type Command } from './core/commands.ts';

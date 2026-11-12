@@ -84,3 +84,34 @@ export function updateMarket(s: Settlement, world: LogisticsWorld, dtDays: numbe
   s.flows.demand = {};
   s.flows.supply = {};
 }
+
+/**
+ * Seed rolling rates from nominal demand (population needs + facility inputs at capacity)
+ * and nominal output, so prices are sensible from the first tick.
+ */
+export function initMarketRates(s: Settlement, world: LogisticsWorld): void {
+  if (s.isDeepMarket) return;
+  const c = world.constants;
+  for (const tier of Object.values(c.needsPerCapitaPerDay)) {
+    for (const [good, perCapita] of Object.entries(tier) as [
+      keyof Settlement['market'],
+      number,
+    ][]) {
+      s.market[good].consumptionPerDay += s.population * perCapita;
+    }
+  }
+  for (const f of s.facilities) {
+    const r = world.recipes.get(f.recipeId);
+    if (!r) continue;
+    for (const i of r.inputs) s.market[i.good].consumptionPerDay += f.maxRatePerDay * i.qty;
+    for (const o of r.outputs) s.market[o.good].productionPerDay += f.maxRatePerDay * o.qty;
+  }
+  for (const g of GOOD_IDS) {
+    const e = s.market[g];
+    const base = world.goods.get(g)?.basePrice ?? 0;
+    const flow = e.consumptionPerDay + e.productionPerDay;
+    e.targetStock = flow > 1e-6 ? Math.max(1, flow * c.bufferDays) : 0;
+    e.price = flow > 1e-6 ? priceFor(base, e.stock, e.targetStock, c) : base * c.priceClampMin;
+    e.lastAnnouncedPrice = e.price;
+  }
+}

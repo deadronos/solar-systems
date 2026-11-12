@@ -1,6 +1,7 @@
 import type { Ephemeris } from '../world/ephemeris.ts';
+import { runShips } from './core/commands.ts';
 import { LogisticsWorld, sortedIds } from './core/world.ts';
-import { updateMarket } from './economy/markets.ts';
+import { initMarketRates, updateMarket } from './economy/markets.ts';
 import { runPopulation } from './economy/population.ts';
 import { runProduction } from './economy/production.ts';
 import type { ScenarioConfig } from './economy/types.ts';
@@ -12,6 +13,7 @@ import type { ScenarioConfig } from './economy/types.ts';
 export function createWorld(config: ScenarioConfig, ephemeris: Ephemeris): LogisticsWorld {
   const world = new LogisticsWorld(config, ephemeris);
   const settlementIds = () => sortedIds(world.settlements);
+  for (const id of settlementIds()) initMarketRates(world.settlements.get(id)!, world);
   world.addPhase('production', (w, dt) => {
     for (const id of settlementIds()) runProduction(w.settlements.get(id)!, w, dt);
   });
@@ -21,5 +23,6 @@ export function createWorld(config: ScenarioConfig, ephemeris: Ephemeris): Logis
   world.addPhase('markets', (w, dt) => {
     for (const id of settlementIds()) updateMarket(w.settlements.get(id)!, w, dt);
   });
+  world.addPhase('ships', (w, dt) => runShips(w, dt, sortedIds(w.ships)));
   return world;
 }
