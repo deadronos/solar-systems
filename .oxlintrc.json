@@ -1,0 +1,49 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "react-perf", "import", "unicorn", "oxc"],
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+    "react/no-unknown-property": "off",
+    "react-perf/jsx-no-new-object-as-prop": "off",
+    "react-perf/jsx-no-new-array-as-prop": "off",
+    "react-perf/jsx-no-new-function-as-prop": "off",
+    "import/no-cycle": "error",
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["react", "react-dom", "three", "@react-three/*"],
+            "message": "src/sim must stay framework-free."
+          }
+        ]
+      }
+    ],
+    "import/no-unassigned-import": [
+      "warn",
+      {
+        "allow": ["**/*.css"]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/render/**", "src/ui/**", "src/app/**", "src/state/**", "src/main.tsx"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ],
+  "ignorePatterns": ["dist"]
+}
