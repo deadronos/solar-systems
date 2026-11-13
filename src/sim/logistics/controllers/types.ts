@@ -37,6 +37,8 @@ export interface CompanyView {
   /** Tonnes the settlement will still buy. */
   demandRoom(settlementId: string, good: GoodId): number;
   estimateTrip(shipId: string, fromSiteId: string, toSiteId: string): TripEstimate | null;
+  /** Effective fuel price per tonne for `qty` at a site (emergency premium when the depot is dry). */
+  fuelPrice(siteId: string, qty: number): number;
   /** Heliocentric distance of a settlement from the Sun (AU). */
   distanceFromSunAU(settlementId: string): number;
   setIntent(shipId: string, text: string): void;

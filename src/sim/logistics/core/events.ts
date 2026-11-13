@@ -88,6 +88,7 @@ export type EventPayload =
       settlementId: string;
       qty: number;
       cost: number;
+      emergency?: boolean;
     }
   | {
       type: 'ShipOrdered';

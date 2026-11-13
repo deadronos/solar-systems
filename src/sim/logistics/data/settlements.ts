@@ -37,7 +37,7 @@ export const SETTLEMENTS: SettlementDef[] = [
     site: { bodyId: 'earth', kind: 'orbit' },
     population: 400,
     housingCapacity: 450,
-    facilities: [],
+    facilities: [{ recipeId: 'recycle_life_support', maxRatePerDay: 2.2 }],
     initialStock: {
       water: 200,
       oxygen: 60,

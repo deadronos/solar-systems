@@ -102,15 +102,26 @@ describe('commands', () => {
     ]);
   });
 
-  it('rejects dispatch without fuel at the site and from an unknown company', () => {
+  it('buys emergency fuel at a premium when the depot is dry', () => {
     const w = createWorld(scenario('chem-tug', 'vesta-mines'), eph);
     const ship = [...w.ships.values()][0]!;
     w.settlements.get('vesta-mines')!.market.fuel.stock = 0;
+    const cash0 = w.companies.get('t')!.cash;
     expect(
       w.issue('t', [{ type: 'PlanAndDispatch', shipId: ship.id, toSiteId: 'ceres-colony' }]),
-    ).toEqual([false]);
+    ).toEqual([true]);
+    const ev = w.events.recent(10).find((e) => e.type === 'FuelPurchased');
+    expect(ev && ev.type === 'FuelPurchased' && ev.emergency).toBe(true);
+    const qty = ev && ev.type === 'FuelPurchased' ? ev.qty : 0;
+    expect(cash0 - w.companies.get('t')!.cash).toBeCloseTo(qty * 800 * 3, 0);
+    expect(w.settlements.get('vesta-mines')!.market.fuel.stock).toBe(0);
+  });
+
+  it('rejects commands from an unknown company', () => {
+    const w = createWorld(scenario('chem-tug', 'gateway'), eph);
+    const ship = [...w.ships.values()][0]!;
     expect(w.issue('other', [{ type: 'SellShip', shipId: ship.id }])).toEqual([false]);
-    expect(rejections(w)).toEqual(['unknown-company', 'no-fuel']);
+    expect(rejections(w)).toEqual(['unknown-company']);
   });
 
   it('delivers purchased ships after their build time', () => {

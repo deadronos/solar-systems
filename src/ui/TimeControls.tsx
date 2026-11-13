@@ -1,10 +1,17 @@
 import { useCallback, useEffect } from 'react';
 import { useSimulation } from '../render/index.ts';
+import { MAX_RATE_SECONDS_PER_SECOND } from '../sim/logistics/index.ts';
 import { formatJdDate, formatRate, nearestPresetIndex, RATE_PRESETS } from './format.ts';
 import { useClockState, usePolled } from './hooks.ts';
 
 export function TimeControls() {
-  const { clock } = useSimulation();
+  const sim = useSimulation();
+  const { clock } = sim;
+  /** The economy only runs forward and has a top speed. */
+  const economy = sim.logistics !== null;
+  const maxIndex = economy
+    ? RATE_PRESETS.findLastIndex((p) => p.seconds <= MAX_RATE_SECONDS_PER_SECOND)
+    : RATE_PRESETS.length - 1;
   const { rate, paused } = useClockState(clock);
   const jd = usePolled(
     useCallback(() => clock.jd, [clock]),
@@ -16,10 +23,10 @@ export function TimeControls() {
 
   const setIndex = useCallback(
     (i: number) => {
-      const clamped = Math.max(0, Math.min(RATE_PRESETS.length - 1, i));
+      const clamped = Math.max(0, Math.min(maxIndex, i));
       clock.setRate(sign * RATE_PRESETS[clamped]!.seconds);
     },
-    [clock, sign],
+    [clock, sign, maxIndex],
   );
 
   useEffect(() => {
@@ -30,12 +37,12 @@ export function TimeControls() {
         clock.togglePaused();
       } else if (e.key === ']' || e.key === '.') setIndex(index + 1);
       else if (e.key === '[' || e.key === ',') setIndex(index - 1);
-      else if (e.key === 'r') clock.setRate(-clock.rate);
-      else if (e.key === 'n') clock.resetToNow();
+      else if (e.key === 'r' && !economy) clock.setRate(-clock.rate);
+      else if (e.key === 'n' && !economy) clock.resetToNow();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [clock, index, setIndex]);
+  }, [clock, index, setIndex, economy]);
 
   return (
     <section className="panel time-controls" aria-label="Time controls">
@@ -44,14 +51,16 @@ export function TimeControls() {
         <div className="clock__time">{time}</div>
       </div>
       <div className="time-controls__buttons">
-        <button
-          type="button"
-          title="Reverse time (R)"
-          className={rate < 0 ? 'active' : ''}
-          onClick={() => clock.setRate(-rate)}
-        >
-          ⇆
-        </button>
+        {!economy && (
+          <button
+            type="button"
+            title="Reverse time (R)"
+            className={rate < 0 ? 'active' : ''}
+            onClick={() => clock.setRate(-rate)}
+          >
+            ⇆
+          </button>
+        )}
         <button
           type="button"
           title="Slower ([)"
@@ -72,19 +81,21 @@ export function TimeControls() {
           type="button"
           title="Faster (])"
           onClick={() => setIndex(index + 1)}
-          disabled={index === RATE_PRESETS.length - 1}
+          disabled={index >= maxIndex}
         >
           ▶▶
         </button>
-        <button type="button" title="Jump to now (N)" onClick={() => clock.resetToNow()}>
-          Now
-        </button>
+        {!economy && (
+          <button type="button" title="Jump to now (N)" onClick={() => clock.resetToNow()}>
+            Now
+          </button>
+        )}
       </div>
       <label className="rate">
         <input
           type="range"
           min={0}
-          max={RATE_PRESETS.length - 1}
+          max={maxIndex}
           step={1}
           value={index}
           onChange={(e) => setIndex(Number(e.target.value))}

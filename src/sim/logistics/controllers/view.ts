@@ -1,5 +1,6 @@
 import { AU_KM } from '../../constants.ts';
 import { length, vec3 } from '../../math/vec3.ts';
+import { fuelPricePerTonne } from '../core/commands.ts';
 import type { LogisticsWorld } from '../core/world.ts';
 import { askPrice, bidPrice, maxBuyQty } from '../economy/markets.ts';
 import type { GoodId } from '../economy/types.ts';
@@ -56,6 +57,7 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
       if (!ship || ship.companyId !== companyId) return null;
       return world.nav.estimateCached(world.shipClassOf(ship), site(fromId), site(toId), world.jd);
     },
+    fuelPrice: (sid, qty) => fuelPricePerTonne(world, site(sid), qty),
     distanceFromSunAU: (sid) =>
       length(world.ephemeris.positionAt(site(sid).site.bodyId, world.jd, scratch)) / AU_KM,
     setIntent: (shipId, text) => {

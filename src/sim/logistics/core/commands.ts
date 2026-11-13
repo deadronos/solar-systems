@@ -1,4 +1,4 @@
-import { askPrice, bidPrice, maxBuyQty } from '../economy/markets.ts';
+import { addDemand, askPrice, bidPrice, maxBuyQty } from '../economy/markets.ts';
 import type { Company, Contract, GoodId, Settlement, Ship } from '../economy/types.ts';
 import { planTrip } from '../navigation/planner.ts';
 import type { LogisticsWorld } from './world.ts';
@@ -14,6 +14,19 @@ export type Command =
   | { type: 'AbandonContract'; contractId: string }
   | { type: 'PurchaseShip'; classId: string; shipyardSiteId: string }
   | { type: 'SellShip'; shipId: string };
+
+/** Emergency fuel (depot dry) costs this multiple of the base fuel price. */
+export const EMERGENCY_FUEL_FACTOR = 3;
+
+/**
+ * Effective fuel price for `qty` tonnes at a site: the local ask while the depot has stock,
+ * otherwise emergency supply at a steep premium (keeps ships from being stranded).
+ */
+export function fuelPricePerTonne(world: LogisticsWorld, site: Settlement, qty: number): number {
+  const e = site.market.fuel;
+  if (site.isDeepMarket || e.stock >= qty) return askPrice(e, world.constants);
+  return (world.goods.get('fuel')?.basePrice ?? 0) * EMERGENCY_FUEL_FACTOR;
+}
 
 /** Fraction of list price recovered when selling a ship. */
 export const RESALE_FRACTION = 0.6;
@@ -147,15 +160,16 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       let cost = plan.exoticCost;
       if (plan.exoticCost > 0 && !from.isShipyard) reject('no-exotic-fuel');
       const fuel = from.market.fuel;
-      if (plan.fuelT > 0) {
-        if (fuel.stock < plan.fuelT) reject('no-fuel');
-        cost += plan.fuelT * askPrice(fuel, c);
-      }
+      const fuelPrice = fuelPricePerTonne(world, from, plan.fuelT);
+      const emergency = plan.fuelT > 0 && !from.isDeepMarket && fuel.stock < plan.fuelT;
+      cost += plan.fuelT * fuelPrice;
       spend(world, company, ship, cost);
       if (plan.fuelT > 0) {
-        if (!from.isDeepMarket) {
+        // Ship refuelling is local demand, so depots order more fuel.
+        addDemand(from, 'fuel', plan.fuelT);
+        if (!from.isDeepMarket && !emergency) {
           fuel.stock -= plan.fuelT;
-          from.treasury += plan.fuelT * askPrice(fuel, c);
+          from.treasury += plan.fuelT * fuelPrice;
         }
         world.events.append(world.jd, {
           type: 'FuelPurchased',
@@ -164,6 +178,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
           settlementId: from.id,
           qty: plan.fuelT,
           cost,
+          ...(emergency ? { emergency: true } : {}),
         });
       }
       ship.plan = plan;

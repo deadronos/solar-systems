@@ -63,6 +63,16 @@ export const RECIPES: Recipe[] = [
     outputs: [{ good: 'food', qty: 1 }],
     workersPerUnitPerDay: 6,
   },
+  {
+    id: 'recycle_life_support',
+    name: 'Life-support recycling',
+    inputs: [],
+    outputs: [
+      { good: 'water', qty: 1 },
+      { good: 'oxygen', qty: 0.25 },
+    ],
+    workersPerUnitPerDay: 2,
+  },
   // Fuel
   {
     id: 'make_fuel',

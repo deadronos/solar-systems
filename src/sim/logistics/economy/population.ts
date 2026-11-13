@@ -81,6 +81,13 @@ export function runPopulation(s: Settlement, world: LogisticsWorld, dtDays: numb
     if (hb.inputs.every((i) => s.market[i.good].stock >= i.qty)) {
       for (const i of hb.inputs) s.market[i.good].stock -= i.qty;
       s.housingCapacity *= 1 + hb.capacityGainFraction;
+      // New districts come with matching life support (farms, recyclers, ice plants).
+      for (const f of s.facilities) {
+        const r = world.recipes.get(f.recipeId);
+        if (r?.outputs.some((o) => world.goods.get(o.good)?.category === 'survival')) {
+          f.maxRatePerDay *= 1 + hb.capacityGainFraction;
+        }
+      }
       world.events.append(world.jd, {
         type: 'HousingExpanded',
         settlementId: s.id,

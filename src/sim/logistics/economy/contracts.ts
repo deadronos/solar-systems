@@ -83,7 +83,7 @@ function bestLocalSource(world: LogisticsWorld, buyer: Settlement, good: GoodId,
       : e.stock - SOURCE_RESERVE * e.targetStock;
     if (spare < qty) continue;
     const price = askPrice(e, world.constants);
-    if (price < buyer.market[good].price && (!best || price < best.price)) best = { s, price };
+    if (!best || price < best.price) best = { s, price };
   }
   return best;
 }
@@ -138,6 +138,42 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
   const c = world.constants;
   const e = buyer.market[good];
   if (e.targetStock <= 0) return;
+  // Self-supplied goods (local output keeps up with use) are never imported.
+  if (e.productionPerDay >= e.consumptionPerDay) return;
+  const survival = world.goods.get(good)?.category === 'survival';
+  if (!survival && buyer.inShortage) return;
+  const budget = survival
+    ? Math.max(0, buyer.treasury) * MAX_TREASURY_FRACTION
+    : Math.max(0, buyer.treasury - survivalReserve(world, buyer)) * NON_SURVIVAL_TREASURY_FRACTION;
+
+  // Local shuttle: neighbours on the same body (e.g. Gateway ↔ Earth Exchange) are one
+  // economy — top up straight from them whenever stock in hand runs low. No ship needed.
+  if (e.stock < POST_THRESHOLD * e.targetStock) {
+    const want = Math.ceil(e.targetStock - e.stock);
+    const local = bestLocalSource(world, buyer, good, want);
+    if (local) {
+      const qty = Math.min(want, Math.floor((budget - 2 * c.dockingFee) / local.price));
+      if (qty >= 1) {
+        const cost = local.price * qty + 2 * c.dockingFee;
+        buyer.treasury -= cost;
+        e.stock += qty;
+        if (!local.s.isDeepMarket) {
+          local.s.market[good].stock -= qty;
+          local.s.treasury += local.price * qty;
+        }
+        world.events.append(world.jd, {
+          type: 'LocalShuttle',
+          settlementId: buyer.id,
+          pickupSettlementId: local.s.id,
+          good,
+          qty,
+          cost,
+        });
+      }
+      return;
+    }
+  }
+
   // Cover consumption during the delivery lead time as well as the normal buffer.
   const lead = bestSource(world, buyer, good, Math.min(MAX_CONTRACT_QTY, e.targetStock));
   const leadDays = lead ? lead.trip.days : DEFAULT_LEAD_DAYS;
@@ -148,37 +184,8 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
   const premium = c.contractPremium * (buyer.inShortage ? SHORTAGE_PREMIUM_FACTOR : 1);
   const unitReward = e.price * (1 + premium);
   const escalation = buyer.orderEscalation[good] ?? 1;
-  const survival = world.goods.get(good)?.category === 'survival';
-  if (!survival && buyer.inShortage) return;
-  const budget = survival
-    ? Math.max(0, buyer.treasury) * MAX_TREASURY_FRACTION
-    : Math.max(0, buyer.treasury - survivalReserve(world, buyer)) * NON_SURVIVAL_TREASURY_FRACTION;
   qty = Math.min(qty, Math.floor(budget / unitReward));
   if (qty < 1) return;
-
-  // Local shuttle: neighbours on the same body (e.g. Gateway ↔ Earth Exchange) trade
-  // directly — the planner treats such hops as docking only, so no ship is needed.
-  const local = bestLocalSource(world, buyer, good, qty);
-  if (local) {
-    const cost = local.price * qty + world.constants.dockingFee * 2;
-    if (cost <= budget) {
-      buyer.treasury -= cost;
-      buyer.market[good].stock += qty;
-      if (!local.s.isDeepMarket) {
-        local.s.market[good].stock -= qty;
-        local.s.treasury += local.price * qty;
-      }
-      world.events.append(world.jd, {
-        type: 'LocalShuttle',
-        settlementId: buyer.id,
-        pickupSettlementId: local.s.id,
-        good,
-        qty,
-        cost,
-      });
-      return;
-    }
-  }
 
   // Freight: buy at the best source now and pay a carrier only to haul it.
   const source = bestSource(world, buyer, good, qty);

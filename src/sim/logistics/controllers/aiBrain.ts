@@ -469,6 +469,8 @@ export class AiBrain implements CompanyController {
     for (const [a, b] of legs) {
       const est = view.estimateTrip(ship.id, a, b);
       if (!est) return null;
+      // Exotic fuel is only sold at shipyards; chemical/fusion fuel may cost an emergency premium.
+      if (est.exoticCost > 0 && !view.settlement(a)?.isShipyard) return null;
       days += est.arriveJd - view.jd;
       cost += this.#fuelCost(view, a, est);
     }
@@ -477,7 +479,7 @@ export class AiBrain implements CompanyController {
   }
 
   #fuelCost(view: CompanyView, from: string, est: TripEstimate): number {
-    return est.fuelT * view.ask(from, 'fuel') + est.exoticCost;
+    return est.fuelT * view.fuelPrice(from, est.fuelT) + est.exoticCost;
   }
 
   /** Issue a dispatch only if the planner, fuel stock and cash allow it. */
@@ -486,7 +488,6 @@ export class AiBrain implements CompanyController {
     if (from === to) return false;
     const est = view.estimateTrip(ship.id, from, to);
     if (!est) return false;
-    if (est.fuelT > 0 && view.market(from, 'fuel').stock < est.fuelT) return false;
     if (est.exoticCost > 0 && !view.settlement(from)?.isShipyard) return false;
     if (this.#fuelCost(view, from, est) > view.company.cash) return false;
     cmds.push({ type: 'PlanAndDispatch', shipId: ship.id, toSiteId: to });
