@@ -15,7 +15,8 @@ type Job =
 
 interface Candidate {
   score: number;
-  label: string;
+  /** Built only for the chosen candidate (formatting every option was measurable). */
+  label: () => string;
   execute: () => Command[];
 }
 
@@ -45,7 +46,8 @@ const fmtMoney = (v: number): string => {
           : a.toFixed(0);
   return `${v < 0 ? '−' : ''}₡${s}`;
 };
-const fmtT = (t: number) => `${Math.round(t).toLocaleString('en-US')} t`;
+/** Same output as `toLocaleString('en-US')` for integers, without the Intl cost. */
+const fmtT = (t: number) => `${String(Math.round(t)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} t`;
 
 /** Expected profit after discounting revenue for price risk over the trip length. */
 export function riskAdjustedProfit(
@@ -140,7 +142,7 @@ export class AiBrain implements CompanyController {
       view.setIntent(ship.id, 'Idle — no profitable work nearby');
       return;
     }
-    view.setIntent(ship.id, best.label);
+    view.setIntent(ship.id, best.label());
     cmds.push(...best.execute());
   }
 
@@ -367,7 +369,8 @@ export class AiBrain implements CompanyController {
         weightDest(c.settlementId, c.good);
       cands.push({
         score,
-        label: `Contract: ${fmtT(c.qty)} ${c.good} → ${view.settlement(c.settlementId)?.name} (+${fmtMoney(profit)} est.)`,
+        label: () =>
+          `Contract: ${fmtT(c.qty)} ${c.good} → ${view.settlement(c.settlementId)?.name} (+${fmtMoney(profit)} est.)`,
         execute: () => {
           this.#jobs.set(ship.id, { kind: 'contract', contractId: c.id });
           const out: Command[] = [{ type: 'AcceptContract', contractId: c.id, shipId: ship.id }];
@@ -441,7 +444,8 @@ export class AiBrain implements CompanyController {
       const dstName = view.settlement(r.dest)?.name;
       cands.push({
         score,
-        label: `Trade: ${r.good} ${srcName} ${fmtMoney(r.ask)}/t → ${dstName} ${fmtMoney(r.bid)}/t (+${fmtMoney(profit)} est.)`,
+        label: () =>
+          `Trade: ${r.good} ${srcName} ${fmtMoney(r.ask)}/t → ${dstName} ${fmtMoney(r.bid)}/t (+${fmtMoney(profit)} est.)`,
         execute: () => {
           const job: Job = {
             kind: 'trade',
