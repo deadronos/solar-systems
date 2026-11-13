@@ -46,9 +46,8 @@ into tests instead (see [testing.md](testing.md)).
   `fix(economy): …`, `perf(economy): …`, `feat(render): …`, `test: …`, `chore(release): vX.Y.Z`.
   Put `Closes #N` in the body for issues the change fixes.
 - PRs are merged with merge commits ("Merge pull request #N …").
-- **CI:** only `.github/workflows/release.yml` exists. It runs on `v*` tags and runs
-  `pnpm check` → build → deploy to GitHub Pages plus a GitHub Release. Nothing runs on
-  push or PR yet (#28), so run `pnpm check` locally before opening or merging a PR.
+- **CI:** `.github/workflows/ci.yml` runs `pnpm check` and `pnpm build` on pushes to
+  `main` and on pull requests. Run `pnpm check` locally before opening or merging a PR.
 - **Release:** `pnpm release [patch|minor|major]` on a clean, up-to-date `main`. It runs
   `pnpm check`, bumps the version, tags and pushes, and the tag triggers the deploy.
 
