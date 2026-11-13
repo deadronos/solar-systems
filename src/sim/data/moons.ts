@@ -7,6 +7,8 @@ interface MoonSpec {
   name: string;
   parentId: string;
   radiusKm: number;
+  /** GM (km³/s²), where known; the trip planner needs it for local transfers and landings. */
+  gm?: number;
   /** [a (km), e, i (deg), ω (deg), Ω (deg), M0 (deg), sidereal period (days)] */
   el: readonly [number, number, number, number, number, number, number];
   frame?: OrbitFrame;
@@ -40,6 +42,7 @@ function moon(spec: MoonSpec): BodyDefinition {
     kind: 'moon',
     parentId: spec.parentId,
     radiusKm: spec.radiusKm,
+    ...(spec.gm === undefined ? {} : { gm: spec.gm }),
     orbit,
     orbitFrame: spec.frame ?? 'parentEquator',
     ...(spec.synchronous === false ? {} : { rotation: 'synchronous' as const }),
@@ -58,6 +61,7 @@ export const MOONS: readonly BodyDefinition[] = [
     name: 'Moon',
     parentId: 'earth',
     radiusKm: 1_737.4,
+    gm: 4_902.8,
     el: [384_400, 0.0554, 5.16, 318.15, 125.08, 135.27, 27.321_661],
     frame: 'ecliptic',
     OmegaRateDegPerDay: -360 / 6_793.48,
@@ -70,6 +74,7 @@ export const MOONS: readonly BodyDefinition[] = [
     name: 'Phobos',
     parentId: 'mars',
     radiusKm: 11.27,
+    gm: 0.000_711,
     el: [9_376, 0.0151, 1.075, 150.247, 207.784, 91.059, 0.318_910_2],
   }),
   moon({
@@ -77,6 +82,7 @@ export const MOONS: readonly BodyDefinition[] = [
     name: 'Deimos',
     parentId: 'mars',
     radiusKm: 6.2,
+    gm: 0.000_096,
     el: [23_458, 0.0002, 1.788, 290.496, 24.525, 296.23, 1.262_44],
   }),
 
@@ -86,6 +92,7 @@ export const MOONS: readonly BodyDefinition[] = [
     name: 'Io',
     parentId: 'jupiter',
     radiusKm: 1_821.6,
+    gm: 5_959.9,
     el: [421_800, 0.0041, 0.036, 84.129, 43.977, 342.021, 1.769_137_786],
   }),
   moon({
@@ -93,6 +100,7 @@ export const MOONS: readonly BodyDefinition[] = [
     name: 'Europa',
     parentId: 'jupiter',
     radiusKm: 1_560.8,
+    gm: 3_202.7,
     el: [671_100, 0.0094, 0.466, 88.97, 219.106, 171.016, 3.551_181_041],
   }),
   moon({
@@ -100,6 +108,7 @@ export const MOONS: readonly BodyDefinition[] = [
     name: 'Ganymede',
     parentId: 'jupiter',
     radiusKm: 2_634.1,
+    gm: 9_887.8,
     el: [1_070_400, 0.0013, 0.177, 192.417, 63.552, 317.54, 7.154_552_96],
   }),
   moon({
@@ -107,6 +116,7 @@ export const MOONS: readonly BodyDefinition[] = [
     name: 'Callisto',
     parentId: 'jupiter',
     radiusKm: 2_410.3,
+    gm: 7_179.3,
     el: [1_882_700, 0.0074, 0.192, 52.643, 298.848, 181.408, 16.689_018_4],
   }),
 
@@ -151,6 +161,7 @@ export const MOONS: readonly BodyDefinition[] = [
     name: 'Titan',
     parentId: 'saturn',
     radiusKm: 2_574.7,
+    gm: 8_978.1,
     el: [1_221_865, 0.0288, 0.306, 180.532, 28.06, 163.31, 15.945_448],
   }),
   moon({

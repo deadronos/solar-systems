@@ -21,19 +21,6 @@ const SURFACE_DV_FACTOR = 1.2;
 /** Low-orbit radius as a multiple of planet radius (local transfers start here). */
 const LOW_ORBIT_FACTOR = 1.05;
 
-/** GM (km³/s²) for bodies that lack it in the astronomical catalog. */
-const EXTRA_GM: Record<string, number> = {
-  moon: 4_902.8,
-  phobos: 0.000_711,
-  deimos: 0.000_096,
-  callisto: 7_179.3,
-  ganymede: 9_887.8,
-  europa: 3_202.7,
-  io: 5_959.9,
-  titan: 8_978.1,
-  vesta: 17.29,
-};
-
 export interface TripEstimate {
   departJd: number;
   arriveJd: number;
@@ -104,7 +91,7 @@ export class NavContext {
   }
 
   gm(bodyId: string): number {
-    return this.eph.get(bodyId).gm ?? EXTRA_GM[bodyId] ?? 0;
+    return this.eph.get(bodyId).gm ?? 0;
   }
 
   surfaceDv(site: Settlement): number {
