@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { AU_KM, J2000, SECONDS_PER_DAY } from './constants.ts';
-import { distance, length } from './math/vec3.ts';
+import { AU_KM, DAYS_PER_JULIAN_CENTURY, J2000, SECONDS_PER_DAY } from './constants.ts';
+import { DEG, distance, length, vec3 } from './math/vec3.ts';
+import { elementsAt } from './orbits/models.ts';
 import { solveKepler } from './orbits/kepler.ts';
 import { Simulation } from './simulation.ts';
 import { SimClock } from './time/clock.ts';
@@ -44,6 +45,33 @@ describe('Ephemeris', () => {
     // JPL Horizons: (4.001, 2.939, −0.102) AU.
     const j = au('jupiter');
     expect(distance(j, { x: 4.001, y: 2.939, z: -0.102 })).toBeLessThan(0.05);
+  });
+
+  it('applies the long-range mean anomaly correction to Jupiter', () => {
+    const orbit = eph.get('jupiter').orbit!;
+    const jd = J2000 + DAYS_PER_JULIAN_CENTURY;
+    // Standish Tables 2a and 2b, evaluated at T = 1.
+    const correction =
+      -0.00012452 + 0.0606406 * Math.cos(38.35125 * DEG) - 0.35635438 * Math.sin(38.35125 * DEG);
+    const meanLongitude = 34.33479152 + 3034.90371757;
+    const perihelion = 14.27495244 + 0.18199196;
+    expect(elementsAt(orbit, jd).M).toBeCloseTo(
+      (meanLongitude - perihelion + correction) * DEG,
+      10,
+    );
+  });
+
+  // JPL Horizons geometric vectors, Sun center (500@10), J2000 ecliptic, JD 2488069.5 TDB.
+  it.each([
+    ['earth', -23_551_897, 145_213_160, -32_559, 40_000],
+    ['mars', 91_203_206, 206_557_598, 2_112_857, 150_000],
+    ['jupiter', -803_903_147, -135_906_851, 18_533_339, 2_000_000],
+    ['saturn', -1_369_282_077, -460_610_820, 62_567_810, 8_000_000],
+    ['neptune', -4_347_198_940, 1_231_964_350, 74_827_976, 10_000_000],
+    ['pluto', 5_935_341_284, 3_725_700_243, -2_115_792_370, 12_000_000],
+  ])('places %s near its Horizons position in 2100', (id, x, y, z, toleranceKm) => {
+    const position = eph.positionAt(id, 2_488_069.5, vec3());
+    expect(distance(position, vec3(x, y, z))).toBeLessThan(toleranceKm);
   });
 
   it('keeps moons at their semi-major axis from the parent', () => {

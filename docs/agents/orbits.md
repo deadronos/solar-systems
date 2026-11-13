@@ -29,13 +29,14 @@ epoch-relative values (see `BeltPoints` epoch rebasing and `TrajectoryLayer` anc
 ## Orbit models (`OrbitModel`)
 
 - `jplApprox`: Standish "Keplerian Elements for Approximate Positions of the Major Planets",
-  Table 1 (valid **1800–2050**), with secular rates per Julian century. Used for the planets and Pluto.
-  The economy runs past 2050, which is a known gap (#17).
+  Tables 2a/2b (valid **3000 BC–3000 AD**), used throughout for the planets and Pluto.
+  Table 2a supplies the secular rates per Julian century. Table 2b adds mean anomaly
+  corrections for Jupiter through Pluto.
 - `meanElements`: elements at an epoch with uniform mean motion and optional nodal or apsidal
   precession (deg/day). Used for moons (JPL mean elements; the Moon has its 18.6-yr nodal and
   8.85-yr apsidal rates) and for small bodies via `heliocentric({ aAU, … })`, which derives the
   period from Kepler's third law.
-- `elementsAt(model, jd)` gives osculating `KeplerElements`. `elementRates(model)` gives their
+- `elementsAt(model, jd)` gives osculating `KeplerElements`. `elementRates(model, jd)` gives their
   time derivatives, which `Ephemeris.helioStateAt` uses for exact analytic velocities.
 - `solveKepler` is Newton–Raphson, valid for all e < 1. There are no hyperbolic orbits in the
   catalog; `navigation/kepler2.ts` handles universal-variable propagation for ship arcs.

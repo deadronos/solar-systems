@@ -15,14 +15,13 @@ export const MINOR_BODIES: readonly BodyDefinition[] = [
     parentId: 'sun',
     radiusKm: 1_188.3,
     gm: 869.6,
+    // Standish's original Tables 2a/2b include Pluto (omitted from JPL's current web tables).
+    // https://www.rschr.de/PRPDF/aprx_pos_planets.pdf
     orbit: {
       kind: 'jplApprox',
-      elements: [
-        39.482_116_75, 0.248_827_3, 17.140_012_06, 238.929_038_33, 224.068_916_29, 110.303_936_84,
-      ],
-      rates: [
-        -0.000_315_96, 0.000_051_7, 0.000_048_18, 145.207_805_15, -0.040_629_42, -0.011_834_82,
-      ],
+      elements: [39.48686035, 0.24885238, 17.1410426, 238.96535011, 224.09702598, 110.30167986],
+      rates: [0.00449751, 0.00006016, 0.00000501, 145.18042903, -0.00968827, -0.00809981],
+      meanAnomalyCorrection: [-0.01262724, 0.0, 0.0, 0.0],
     },
     // IAU positive pole; rotation is synchronous with Charon's orbit.
     rotation: { poleRaDeg: 132.993, poleDecDeg: -6.163, periodHours: 153.293_5, W0Deg: 302.695 },
