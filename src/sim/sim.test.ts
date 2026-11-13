@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { AU_KM, DAYS_PER_JULIAN_CENTURY, J2000, SECONDS_PER_DAY } from './constants.ts';
-import { DEG, distance, length, vec3 } from './math/vec3.ts';
+import { cross, DEG, distance, length, vec3, type Vec3 } from './math/vec3.ts';
+
+const dot = (a: Vec3, b: Vec3) => a.x * b.x + a.y * b.y + a.z * b.z;
 import { elementsAt } from './orbits/models.ts';
 import { positionFromElements, solveKepler } from './orbits/kepler.ts';
 import { Simulation } from './simulation.ts';
@@ -93,6 +95,45 @@ describe('Ephemeris', () => {
     expect(distance(bary, orbit)).toBeLessThan(1e-3);
     expect(distance(p, orbit)).toBeGreaterThan(minKm);
     expect(distance(p, orbit)).toBeLessThan(maxKm);
+  });
+
+  const meridian = (id: string, jd: number) => {
+    const o = eph.orientation(id, jd)!;
+    const nn = cross(vec3(), o.pole, o.node);
+    const c = Math.cos(o.angle);
+    const s = Math.sin(o.angle);
+    return vec3(c * o.node.x + s * nn.x, c * o.node.y + s * nn.y, c * o.node.z + s * nn.z);
+  };
+  const angleDeg = (a: Vec3, b: Vec3) =>
+    Math.acos(Math.min(1, dot(a, b) / (length(a) * length(b)))) / DEG;
+
+  it.each([
+    ['moon', 30],
+    ['io', 1],
+    ['titan', 1],
+  ])('turns synchronous %s to face its parent', (id, maxDeg) => {
+    for (const jd of [J2000, J2000 + 3.3, J2000 + 1_000.7]) {
+      const toParent = eph.positionAt(eph.get(id).parentId!, jd, vec3());
+      const self = eph.positionAt(id, jd, vec3());
+      const d = vec3(toParent.x - self.x, toParent.y - self.y, toParent.z - self.z);
+      const m = meridian(id, jd);
+      // The meridian is the parent direction projected on the equator: off by the latitude only.
+      const pole = eph.orientation(id, jd)!.pole;
+      expect(Math.abs(angleDeg(m, d) - Math.abs(90 - angleDeg(pole, d)))).toBeLessThan(1e-6);
+      expect(angleDeg(m, d)).toBeLessThan(maxDeg);
+    }
+  });
+
+  it("measures Earth's prime meridian from the IAU node (Greenwich faces the Sun at noon UT)", () => {
+    const toSun = eph.positionAt('earth', J2000, vec3());
+    toSun.x = -toSun.x;
+    toSun.y = -toSun.y;
+    toSun.z = -toSun.z;
+    // Compare hour angles: project the Sun direction onto the equator (it sits at −23° dec).
+    const pole = eph.orientation('earth', J2000)!.pole;
+    const k = dot(toSun, pole);
+    const onEquator = vec3(toSun.x - k * pole.x, toSun.y - k * pole.y, toSun.z - k * pole.z);
+    expect(angleDeg(meridian('earth', J2000), onEquator)).toBeLessThan(2);
   });
 
   it('keeps moons at their semi-major axis from the parent', () => {

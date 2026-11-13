@@ -2,7 +2,7 @@ import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import {
   AdditiveBlending,
-  Quaternion,
+  Matrix4,
   Vector3,
   type Group,
   type PerspectiveCamera,
@@ -18,12 +18,14 @@ import { glowTexture, surfaceTexture } from '../textures.ts';
 import { Rings } from './Rings.tsx';
 import { PRIORITY_SCENE } from './SimDriver.tsx';
 
-const UP = new Vector3(0, 1, 0);
 const tmpPole = new Vector3();
+const tmpNode = new Vector3();
+const tmpNodeNormal = new Vector3();
+const tmpMeridian = new Vector3();
+const tmpThird = new Vector3();
+const tmpBasis = new Matrix4();
 const tmpParent = new Vector3();
 const tmpNdc = new Vector3();
-const qAlign = new Quaternion();
-const qSpin = new Quaternion();
 
 /** Labels of children closer than this (px) to their parent on screen are hidden. */
 const LABEL_MIN_SEPARATION_PX = 16;
@@ -53,9 +55,17 @@ export function Body({ def }: { def: BodyDefinition }) {
 
     const o = eph.orientation(def.id);
     if (o) {
-      qAlign.setFromUnitVectors(UP, eclipticDirToScene(o.pole, tmpPole));
-      qSpin.setFromAxisAngle(UP, o.angle);
-      b.quaternion.copy(qAlign).multiply(qSpin);
+      // SphereGeometry puts the texture's centre (longitude 0) on local +X and the pole on +Y,
+      // with east towards −Z. Map +X to the prime meridian, +Y to the pole, +Z to meridian × pole.
+      const pole = eclipticDirToScene(o.pole, tmpPole);
+      const node = eclipticDirToScene(o.node, tmpNode);
+      const nodeNormal = tmpNodeNormal.crossVectors(pole, node);
+      const meridian = tmpMeridian
+        .copy(node)
+        .multiplyScalar(Math.cos(o.angle))
+        .addScaledVector(nodeNormal, Math.sin(o.angle));
+      tmpThird.crossVectors(meridian, pole);
+      b.quaternion.setFromRotationMatrix(tmpBasis.makeBasis(meridian, pole, tmpThird));
     }
 
     // Keep tiny bodies visible: never draw smaller than `minPixelRadius` on screen.

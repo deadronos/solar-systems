@@ -1,7 +1,7 @@
 import { J2000 } from '../constants.ts';
 import { topologicalOrder } from '../data/catalog.ts';
 import type { BodyDefinition } from '../data/types.ts';
-import { equatorialToEcliptic, poleToEcliptic } from '../orbits/frames.ts';
+import { equatorialToEcliptic, iauNode, poleToEcliptic } from '../orbits/frames.ts';
 import {
   perifocalToReference,
   positionAtEccentricAnomaly,
@@ -9,12 +9,20 @@ import {
   solveKepler,
 } from '../orbits/kepler.ts';
 import { elementRates, elementsAt, hasSecularRates, periodDays } from '../orbits/models.ts';
-import { add, DEG, TAU, transform, vec3, type Mat3, type Vec3 } from '../math/vec3.ts';
+import { add, cross, DEG, TAU, transform, vec3, type Mat3, type Vec3 } from '../math/vec3.ts';
 
 export interface Orientation {
   /** Unit pole vector in the ecliptic frame. */
   pole: Vec3;
-  /** Prime-meridian rotation angle about the pole (radians). */
+  /**
+   * Unit reference axis in the equator plane that `angle` is measured from: IAU's ascending
+   * node of the body's equator on the ICRF equator (`iauNode`), so `W0Deg` keeps its meaning.
+   */
+  node: Vec3;
+  /**
+   * Prime-meridian angle about the pole (radians), from `node` towards `pole × node`. For a
+   * synchronous moon the prime meridian points at its parent (sub-parent point at 0° longitude).
+   */
   angle: number;
 }
 
@@ -29,6 +37,9 @@ interface BodyRuntime {
   /** Equator→ecliptic matrix for this body (used by its children). */
   equatorFrame: Mat3 | null;
   pole: Vec3 | null;
+  /** Equator-plane axes for the meridian angle: `iauNode(pole)` and `pole × node`. */
+  node: Vec3 | null;
+  nodeNormal: Vec3 | null;
   spinPeriodDays: number | null;
   W0: number;
   /** Moon whose barycenter with this body `def.orbit` describes, and its mass fraction μ. */
@@ -38,6 +49,7 @@ interface BodyRuntime {
 
 const scratch = vec3();
 const partnerScratch = vec3();
+const orientScratch = vec3();
 const partnerA = vec3();
 const partnerB = vec3();
 /** Half-step (days) for the partner's finite-difference velocity in `helioStateAt`. */
@@ -65,6 +77,8 @@ export class Ephemeris {
         local: vec3(),
         equatorFrame: null,
         pole: null,
+        node: null,
+        nodeNormal: null,
         spinPeriodDays: null,
         W0: 0,
         partner: null,
@@ -85,7 +99,10 @@ export class Ephemeris {
         rt.spinPeriodDays = rot.periodHours / 24;
         rt.W0 = (rot.W0Deg ?? 0) * DEG;
       }
-      rt.equatorFrame = rt.pole ? equatorialToEcliptic(rt.pole) : null;
+      const f = rt.pole ? equatorialToEcliptic(rt.pole) : null;
+      rt.equatorFrame = f;
+      rt.node = rt.pole ? iauNode(rt.pole) : null;
+      rt.nodeNormal = rt.pole && rt.node ? cross(vec3(), rt.pole, rt.node) : null;
     }
     for (const rt of this.#runtimes) {
       const partnerId = rt.def.barycentricPartner;
@@ -240,9 +257,22 @@ export class Ephemeris {
 
   orientation(id: string, jd = this.#jd): Orientation | null {
     const rt = this.#rt(id);
-    if (!rt.pole || !rt.spinPeriodDays) return null;
+    const { pole, node, nodeNormal } = rt;
+    if (!pole || !node || !nodeNormal || !rt.spinPeriodDays) return null;
+    if (rt.def.rotation === 'synchronous' && rt.def.orbit && rt.parent) {
+      // Face the parent: the angle of the direction to it, projected on the equator plane.
+      // Eccentricity and inclination then show up as libration.
+      const toParent = this.#localAt(rt, jd, orientScratch);
+      const x = -(toParent.x * node.x + toParent.y * node.y + toParent.z * node.z);
+      const y = -(
+        toParent.x * nodeNormal.x +
+        toParent.y * nodeNormal.y +
+        toParent.z * nodeNormal.z
+      );
+      return { pole, node, angle: Math.atan2(y, x) };
+    }
     const turns = (jd - J2000) / rt.spinPeriodDays;
-    return { pole: rt.pole, angle: rt.W0 + (turns - Math.floor(turns)) * TAU };
+    return { pole, node, angle: rt.W0 + (turns - Math.floor(turns)) * TAU };
   }
 
   orbitalPeriodDays(id: string): number | null {

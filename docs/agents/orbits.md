@@ -56,8 +56,14 @@ epoch-relative values (see `BeltPoints` epoch rebasing and `TrajectoryLayer` anc
 - `positionAt(id, jd, out)` evaluates at an arbitrary date **without** touching cached state.
   The economy and planner use it, never `position()`, so the economy doesn't depend on the
   render clock.
-- `orientation(id)` gives the pole plus prime-meridian angle. `rotation: 'synchronous'` uses
-  the parent's pole and the orbital period. The meridian _phase_ is currently arbitrary (#23).
+- `orientation(id, jd)` gives the pole, the reference `node` and the prime-meridian angle,
+  measured from `node` towards `pole × node`. `node` is IAU's ascending node of the equator on
+  the ICRF equator (`iauNode`), so `W0Deg` keeps its IAU meaning (Greenwich faces the Sun at
+  noon UT). `rotation: 'synchronous'` uses the parent's pole, and its angle points the prime
+  meridian at the parent (the parent direction projected onto the equator), so libration
+  follows from the orbit. `Body.tsx` builds the mesh basis from these vectors: texture
+  longitude 0 sits on local +X. Synchronous moons inherit the parent's pole rather than their
+  own, so the Moon's sub-Earth latitude swings by its ~28° inclination to Earth's equator.
 
 ## Catalog data (`BodyDefinition`)
 

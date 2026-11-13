@@ -18,6 +18,23 @@ export function poleToEcliptic(raDeg: number, decDeg: number): Vec3 {
   return vec3(x, y * Math.cos(EPS) + z * Math.sin(EPS), -y * Math.sin(EPS) + z * Math.cos(EPS));
 }
 
+/** ICRF (J2000 equatorial) north pole in ecliptic coordinates. */
+const ICRF_NORTH = poleToEcliptic(0, 90);
+/** RA 90° on the ICRF equator, in ecliptic coordinates: IAU's node for a pole at the ICRF pole. */
+const ICRF_RA90 = poleToEcliptic(90, 0);
+
+/**
+ * IAU reference axis for the prime-meridian angle W: the ascending node of the body's equator
+ * on the ICRF equator (RA = α0 + 90°), in ecliptic coordinates. `W0Deg` is measured from it.
+ */
+export function iauNode(pole: Vec3): Vec3 {
+  const z = normalize(vec3(), pole);
+  const n = cross(vec3(), ICRF_NORTH, z);
+  return Math.hypot(n.x, n.y, n.z) < 1e-9
+    ? vec3(ICRF_RA90.x, ICRF_RA90.y, ICRF_RA90.z)
+    : normalize(n, n);
+}
+
 /**
  * Matrix mapping vectors expressed in a body's equatorial frame into the ecliptic frame.
  * The equatorial frame's x-axis points to the ascending node of the body's equator on the
