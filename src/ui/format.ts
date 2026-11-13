@@ -38,6 +38,28 @@ export function formatRate(rate: number): string {
   return `${rate < 0 ? '−' : ''}${preset.label}`;
 }
 
+const RATE_UNITS: readonly [seconds: number, unit: string][] = [
+  [31_557_600, 'yr'],
+  [2_629_800, 'mo'],
+  [604_800, 'wk'],
+  [86_400, 'd'],
+  [3_600, 'h'],
+  [60, 'min'],
+  [1, 's'],
+];
+
+/**
+ * A measured rate (simulated seconds per real second) as a number, not snapped to a preset:
+ * "0.73 yr/s", "3.5 mo/s". Uses the largest unit that keeps the value at 0.6 or more.
+ */
+export function formatRateValue(rate: number): string {
+  const abs = Math.abs(rate);
+  const [seconds, unit] = RATE_UNITS.find(([s]) => abs / s >= 0.6) ?? RATE_UNITS.at(-1)!;
+  const v = abs / seconds;
+  const text = v >= 10 ? v.toFixed(0) : v.toPrecision(2).replace(/\.0$/, '');
+  return `${rate < 0 ? '−' : ''}${text} ${unit}/s`;
+}
+
 const pad = (n: number, w = 2) => String(n).padStart(w, '0');
 
 export function formatJdDate(jd: number): { date: string; time: string } {

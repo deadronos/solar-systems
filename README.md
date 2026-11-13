@@ -6,7 +6,7 @@ markets and populations, and AI transport companies flying realistic trajectorie
 
 - **Stack:** React 19 · @react-three/fiber 9 · three r187 · TypeScript 7 (native `tsc`) · Vite 8 · oxlint · oxfmt · Vitest
 - **Distances and radii are to scale** (1 scene unit = 1,000,000 km). Bodies smaller than a few pixels are drawn at a minimum on-screen size, which you can turn off with "Strict true size". Distances are never exaggerated.
-- **Real orbital motion:** Kepler's equation is solved for every body and every belt particle on every frame.
+- **Real orbital motion:** Kepler's equation is solved for every body and every belt particle on every frame (belt particles on the GPU, in the vertex shader).
 
 ```bash
 pnpm install

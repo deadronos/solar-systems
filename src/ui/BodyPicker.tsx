@@ -1,25 +1,18 @@
 import { useMemo } from 'react';
 import { useSimulation } from '../render/index.ts';
 import type { BodyDefinition } from '../sim/index.ts';
-import { useSelectionStore } from '../state/selectionStore.ts';
+import { focusBody } from '../state/actions.ts';
 import { useViewStore } from '../state/viewStore.ts';
 
 function Item({ def, depth }: { def: BodyDefinition; depth: number }) {
   const focusId = useViewStore((s) => s.focusId);
-  const setFocus = useViewStore((s) => s.setFocus);
-  const select = useSelectionStore((s) => s.select);
-  const setFollow = useSelectionStore((s) => s.setFollow);
   return (
     <li>
       <button
         type="button"
         className={`picker__item ${focusId === def.id ? 'active' : ''}`}
         style={{ paddingLeft: `${0.6 + depth * 0.9}rem` }}
-        onClick={() => {
-          setFollow(false);
-          setFocus(def.id);
-          select({ kind: 'body', id: def.id });
-        }}
+        onClick={() => focusBody(def.id)}
       >
         {def.name}
       </button>

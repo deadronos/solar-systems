@@ -76,6 +76,44 @@ export function elementsAt(model: OrbitModel, jd: number): KeplerElements {
   }
 }
 
+/** Time derivatives of an orbit model's elements, per day (km, rad). */
+export interface ElementRates {
+  aDot: number;
+  eDot: number;
+  iDot: number;
+  OmegaDot: number;
+  omegaDot: number;
+  /** Mean motion (dM/dt). */
+  n: number;
+}
+
+export function elementRates(model: OrbitModel): ElementRates {
+  switch (model.kind) {
+    case 'jplApprox': {
+      // Per-century rates of a, e, I, L, ϖ, Ω → M = L − ϖ, ω = ϖ − Ω.
+      const [aR, eR, IR, LR, wR, OR] = model.rates;
+      const k = DEG / DAYS_PER_JULIAN_CENTURY;
+      return {
+        aDot: (aR * AU_KM) / DAYS_PER_JULIAN_CENTURY,
+        eDot: eR / DAYS_PER_JULIAN_CENTURY,
+        iDot: IR * k,
+        OmegaDot: OR * k,
+        omegaDot: (wR - OR) * k,
+        n: (LR - wR) * k,
+      };
+    }
+    case 'meanElements':
+      return {
+        aDot: 0,
+        eDot: 0,
+        iDot: 0,
+        OmegaDot: (model.OmegaRateDegPerDay ?? 0) * DEG,
+        omegaDot: (model.omegaRateDegPerDay ?? 0) * DEG,
+        n: (360 / model.periodDays) * DEG,
+      };
+  }
+}
+
 /** Sidereal orbital period in days. */
 export function periodDays(model: OrbitModel): number {
   switch (model.kind) {

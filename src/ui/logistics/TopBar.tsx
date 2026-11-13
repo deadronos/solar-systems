@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useSimulation } from '../../render/index.ts';
 import { netWorth } from '../../sim/logistics/index.ts';
 import { useSelectionStore } from '../../state/selectionStore.ts';
-import { formatRate } from '../format.ts';
+import { formatRate, formatRateValue } from '../format.ts';
 import { EntityLink, useTick } from './common.tsx';
 import { fmtMoney, fmtTonnes } from './format.ts';
 
@@ -23,11 +23,16 @@ export function TopBar() {
   const past = series.at(-31) ?? series[0];
   const trend = past && leader ? Math.sign(leader.worth - past.v) : 0;
   const lagging = sim.lagDays > 0.5;
+  // Show the measured rate; name the requested preset when the economy can't keep up with it.
+  const requested = sim.clock.rate;
+  const achieved = sim.achievedRate || requested;
+  const short = achieved < requested * 0.9;
   return (
     <header className="panel topbar" aria-label="Economy summary">
-      <span>
+      <span title="Measured simulation speed">
         <span className="muted">Speed </span>
-        {sim.clock.paused ? 'paused' : formatRate(sim.achievedRate || sim.clock.rate)}
+        {sim.clock.paused ? 'paused' : formatRateValue(achieved)}
+        {!sim.clock.paused && short && <span className="muted"> of {formatRate(requested)}</span>}
         {lagging && <span className="tag tag--warn">economy catching up</span>}
       </span>
       <span>

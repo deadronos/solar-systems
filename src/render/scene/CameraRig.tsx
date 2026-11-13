@@ -1,16 +1,19 @@
 import { OrbitControls } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
-import { useEffect, useRef, type ComponentRef } from 'react';
-import { AU_KM, type BodyDefinition } from '../../sim/index.ts';
-import { useSelectionStore } from '../../state/selectionStore.ts';
+import { useRef, type ComponentRef } from 'react';
+import { AU_KM, type BodyDefinition, type Simulation } from '../../sim/index.ts';
+import { useSelectionStore, type EntityRef } from '../../state/selectionStore.ts';
 import { useViewStore } from '../../state/viewStore.ts';
 import { UNITS_PER_KM } from '../coords.ts';
+import { cameraTarget, entityAnchorBody, trackedShip } from '../logistics/focus.ts';
 import { useSimulation } from '../SimulationContext.tsx';
 import { PRIORITY_SCENE } from './SimDriver.tsx';
 
 const TRANSITION_SECONDS = 1.4;
-/** Camera distance when following a ship (scene units = 1M km). */
+/** Camera distance when following a ship in flight (scene units = 1M km). */
 const SHIP_VIEW_UNITS = 3;
+/** Closest approach to a ship in flight (scene units). */
+const SHIP_MIN_UNITS = 1e-6;
 
 /** Good viewing distance when focusing a body (scene units). */
 function viewDistance(def: BodyDefinition): number {
@@ -18,69 +21,68 @@ function viewDistance(def: BodyDefinition): number {
   return def.radiusKm * UNITS_PER_KM * (def.radiusKm < 100 ? 12 : 6);
 }
 
+interface View {
+  distance: number;
+  minDistance: number;
+}
+
+const bodyView = (def: BodyDefinition): View => ({
+  distance: viewDistance(def),
+  minDistance: def.radiusKm * UNITS_PER_KM * 1.15,
+});
+
+/**
+ * Viewing distance for a camera target: entities sitting at a body (settlements, docked or
+ * waiting ships) are framed like that body, ships in flight get a close-up, and entities that
+ * no longer exist fall back to the focused body (where `resolveFocusPosition` puts the origin).
+ */
+function viewFor(sim: Simulation, target: EntityRef, anchor: string | null, focusId: string): View {
+  if (anchor) return bodyView(sim.ephemeris.get(anchor));
+  if (trackedShip(sim, target)) return { distance: SHIP_VIEW_UNITS, minDistance: SHIP_MIN_UNITS };
+  return bodyView(sim.ephemeris.get(focusId));
+}
+
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
 /**
- * Orbit camera around the floating origin (= the focused body, always at 0,0,0).
- * Focus changes animate the camera distance logarithmically, which reads well across the
- * ~10 orders of magnitude between Phobos and the Kuiper belt.
+ * Orbit camera around the floating origin (= the camera target, always at 0,0,0).
+ * Whenever the target changes — a new focus body, following or unfollowing an entity, or a
+ * followed ship docking / departing — the camera distance animates logarithmically, which reads
+ * well across the ~10 orders of magnitude between Phobos and the Kuiper belt.
  */
 export function CameraRig() {
   const sim = useSimulation();
   const camera = useThree((s) => s.camera);
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
-  const focusId = useViewStore((s) => s.focusId);
-  const follow = useSelectionStore((s) => s.follow);
-  const followed = useSelectionStore((s) => (s.follow ? s.selected : null));
-  const followKey = followed ? `${followed.kind}:${followed.id}` : '';
   const anim = useRef<{ from: number; to: number; t: number; minDistance: number } | null>(null);
-
-  useEffect(() => {
-    const def = sim.ephemeris.get(focusId);
-    const c = controls.current;
-    if (!c) return;
-    c.minDistance = 1e-9;
-    anim.current = {
-      from: camera.position.length(),
-      to: viewDistance(def),
-      t: 0,
-      minDistance: def.radiusKm * UNITS_PER_KM * 1.15,
-    };
-  }, [focusId, sim, camera]);
-
-  // Following a ship/settlement: glide to a viewing distance suited to it.
-  useEffect(() => {
-    const c = controls.current;
-    if (!c || !followKey || !followed) return;
-    const world = sim.logistics;
-    let to = SHIP_VIEW_UNITS;
-    let min = 1e-6;
-    if (followed.kind === 'settlement') {
-      const s = world?.settlements.get(followed.id);
-      const body = s ? sim.ephemeris.get(s.site.bodyId) : undefined;
-      if (body) {
-        to = viewDistance(body);
-        min = body.radiusKm * UNITS_PER_KM * 1.15;
-      }
-    } else if (followed.kind === 'body' && sim.ephemeris.has(followed.id)) {
-      const body = sim.ephemeris.get(followed.id);
-      to = viewDistance(body);
-      min = body.radiusKm * UNITS_PER_KM * 1.15;
-    }
-    c.minDistance = 1e-9;
-    anim.current = { from: camera.position.length(), to, t: 0, minDistance: min };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [followKey, sim, camera]);
-  void follow;
+  const lastKey = useRef<string | null>(null);
 
   useFrame((_, dt) => {
+    const c = controls.current;
+    const { follow, selected } = useSelectionStore.getState();
+    const { focusId } = useViewStore.getState();
+    const target = cameraTarget(follow, selected, focusId);
+    const anchor = entityAnchorBody(sim, target);
+    const key = `${target.kind}:${target.id}@${anchor ?? ''}`;
+    if (key !== lastKey.current) {
+      lastKey.current = key;
+      const view = viewFor(sim, target, anchor, focusId);
+      if (c) c.minDistance = 1e-9;
+      anim.current = {
+        from: camera.position.length(),
+        to: view.distance,
+        t: 0,
+        minDistance: view.minDistance,
+      };
+    }
+
     const a = anim.current;
     if (!a) return;
     a.t = Math.min(1, a.t + dt / TRANSITION_SECONDS);
     const d = Math.exp(Math.log(a.from) + (Math.log(a.to) - Math.log(a.from)) * ease(a.t));
     camera.position.setLength(d);
     if (a.t >= 1) {
-      if (controls.current) controls.current.minDistance = a.minDistance;
+      if (c) c.minDistance = a.minDistance;
       anim.current = null;
     }
   }, PRIORITY_SCENE);

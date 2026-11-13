@@ -24,8 +24,8 @@ export interface SimulationOptions {
   now?: () => number;
 }
 
-/** Ticks processed between wall-clock budget checks. */
-const BUDGET_CHUNK_TICKS = 4;
+/** Ticks processed between wall-clock budget checks (1: a heavy tick never doubles the overrun). */
+const BUDGET_CHUNK_TICKS = 1;
 
 /** If the economy falls this far behind the clock, the clock waits for it. */
 const MAX_LAG_DAYS = 2;

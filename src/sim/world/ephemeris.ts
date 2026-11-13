@@ -2,8 +2,13 @@ import { J2000 } from '../constants.ts';
 import { topologicalOrder } from '../data/catalog.ts';
 import type { BodyDefinition } from '../data/types.ts';
 import { equatorialToEcliptic, poleToEcliptic } from '../orbits/frames.ts';
-import { positionAtEccentricAnomaly, positionFromElements } from '../orbits/kepler.ts';
-import { elementsAt, hasSecularRates, periodDays } from '../orbits/models.ts';
+import {
+  perifocalToReference,
+  positionAtEccentricAnomaly,
+  positionFromElements,
+  solveKepler,
+} from '../orbits/kepler.ts';
+import { elementRates, elementsAt, hasSecularRates, periodDays } from '../orbits/models.ts';
 import { add, DEG, TAU, transform, vec3, type Mat3, type Vec3 } from '../math/vec3.ts';
 
 export interface Orientation {
@@ -125,6 +130,49 @@ export class Ephemeris {
     }
     this.positionAt(parent.def.id, jd, out);
     return add(out, out, local);
+  }
+
+  /**
+   * Heliocentric position (km) and velocity (km/s) of a body that orbits the Sun directly,
+   * from one Kepler solve: the exact time derivative of the orbit model (Keplerian motion
+   * plus the secular drift of every element). Returns false for other bodies.
+   */
+  helioStateAt(id: string, jd: number, pos: Vec3, vel: Vec3): boolean {
+    const { def, parent } = this.#rt(id);
+    if (!def.orbit || !parent || parent.parent !== null || def.orbitFrame === 'parentEquator') {
+      return false;
+    }
+    const el = elementsAt(def.orbit, jd);
+    const r = elementRates(def.orbit);
+    const { a, e, i, Omega, omega } = el;
+    const E = solveKepler(el.M, e);
+    positionAtEccentricAnomaly(el, E, pos);
+    const sinE = Math.sin(E);
+    const cosE = Math.cos(E);
+    const q = Math.sqrt(1 - e * e);
+    const Ee = sinE / (1 - e * cosE); // ∂E/∂e at fixed M
+    const Edot = r.n / (1 - e * cosE);
+    // In-plane rate: Kepler motion plus the change of shape (ė); all per day.
+    const xd = -a * sinE * Edot + r.eDot * a * (-sinE * Ee - 1);
+    const yd = a * q * cosE * Edot + r.eDot * a * ((-e / q) * sinE + q * cosE * Ee);
+    perifocalToReference(xd, yd, i, Omega, omega, vel);
+    // Rotations of the orbit: node about the ecliptic pole, inclination about the line of
+    // nodes, periapsis about the orbit normal; plus ȧ scaling.
+    const si = Math.sin(i);
+    const nx = Math.cos(Omega);
+    const ny = Math.sin(Omega);
+    const hx = si * ny;
+    const hy = -si * nx;
+    const hz = Math.cos(i);
+    const { OmegaDot: Od, omegaDot: wd, iDot, aDot } = r;
+    const s = aDot / a;
+    vel.x += wd * (hy * pos.z - hz * pos.y) - Od * pos.y + iDot * (ny * pos.z) + s * pos.x;
+    vel.y += wd * (hz * pos.x - hx * pos.z) + Od * pos.x - iDot * (nx * pos.z) + s * pos.y;
+    vel.z += wd * (hx * pos.y - hy * pos.x) + iDot * (nx * pos.y - ny * pos.x) + s * pos.z;
+    vel.x /= 86_400;
+    vel.y /= 86_400;
+    vel.z /= 86_400;
+    return true;
   }
 
   /** Position relative to the parent body, in km. Live object. */

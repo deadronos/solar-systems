@@ -3,7 +3,7 @@ import { length, sub, vec3, type Vec3 } from '../../math/vec3.ts';
 import type { Ephemeris } from '../../world/ephemeris.ts';
 import type { Settlement, ShipClass } from '../economy/types.ts';
 import { MU_SUN_KM3_S2 } from './kepler2.ts';
-import { bodyVelocity, solveLambert } from './lambert.ts';
+import { bodyState, solveLambert } from './lambert.ts';
 import type { Leg, TrajectoryPlan } from './plan.ts';
 
 const DAY = 86_400;
@@ -170,14 +170,17 @@ export class NavContext {
   /** Lambert solutions for 16 times of flight at a given departure (heliocentric). */
   tofSweep(fromBody: string, toBody: string, departJd: number, hohmannDays: number): Cell[] {
     const out: Cell[] = [];
-    const r1 = this.eph.positionAt(fromBody, departJd, vec3());
-    const vDep = bodyVelocity(this.eph, this.helioBody(fromBody), departJd, vec3());
+    const r1 = vec3();
+    const vDep = vec3();
+    const r2 = vec3();
+    const vArr = vec3();
+    const toHelio = this.helioBody(toBody);
+    bodyState(this.eph, fromBody, this.helioBody(fromBody), departJd, r1, vDep);
     for (let j = 0; j < 16; j++) {
       const tofDays = hohmannDays * (0.4 + (1.6 * j) / 15);
-      const r2 = this.eph.positionAt(toBody, departJd + tofDays, vec3());
+      bodyState(this.eph, toBody, toHelio, departJd + tofDays, r2, vArr);
       const sol = solveLambert(r1, r2, tofDays * DAY, MU_SUN_KM3_S2);
       if (!sol) continue;
-      const vArr = bodyVelocity(this.eph, this.helioBody(toBody), departJd + tofDays, vec3());
       const dv = length(sub(vec3(), sol.v1, vDep)) + length(sub(vec3(), sol.v2, vArr));
       out.push({ departJd, tofDays, dv });
     }
@@ -274,17 +277,22 @@ function solveTrip(
     } else {
       const t0 = earliestJd + ascentDays;
       const { hohmannDays } = ctx.pairTimescales(fromBody, toBody);
-      const candidates = [
-        ...(withLegs
-          ? ctx.tofSweep(fromBody, toBody, t0, hohmannDays)
-          : ctx.sweepFrom(fromBody, toBody, t0)),
-        ...ctx.porkchop.cells(fromBody, toBody, t0).filter((c) => c.departJd >= t0),
-      ];
+      // Immediate departures first, then later launch windows (earlier cells win ties).
+      const now = withLegs
+        ? ctx.tofSweep(fromBody, toBody, t0, hohmannDays)
+        : ctx.sweepFrom(fromBody, toBody, t0);
+      const later = ctx.porkchop.cells(fromBody, toBody, t0);
       let best: Cell | null = null;
-      for (const c of candidates) {
-        if (c.dv > budget) continue;
-        const score = c.departJd + c.tofDays + c.dv * 0.5; // prefer early arrival, then efficiency
-        if (!best || score < best.departJd + best.tofDays + best.dv * 0.5) best = c;
+      let bestScore = Number.POSITIVE_INFINITY;
+      for (const list of [now, later]) {
+        for (const c of list) {
+          if (c.dv > budget || (list === later && c.departJd < t0)) continue;
+          const score = c.departJd + c.tofDays + c.dv * 0.5; // prefer early arrival, then efficiency
+          if (score < bestScore) {
+            best = c;
+            bestScore = score;
+          }
+        }
       }
       if (!best) return null;
       transferStart = best.departJd;
