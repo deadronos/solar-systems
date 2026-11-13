@@ -3,7 +3,7 @@ import { netWorth } from '../../sim/logistics/index.ts';
 import { useSelectionStore } from '../../state/selectionStore.ts';
 import { BodyPicker } from '../BodyPicker.tsx';
 import { EntityLink, useTick, useWorld } from './common.tsx';
-import { fmtGood, fmtMoney, fmtTonnes } from './format.ts';
+import { fmtGood, fmtMoney, fmtTonnes, orderValue } from './format.ts';
 
 type Tab = 'bodies' | 'companies' | 'settlements' | 'ships' | 'contracts';
 const TABS: { id: Tab; label: string }[] = [
@@ -181,7 +181,7 @@ function Contracts() {
   const world = useWorld()!;
   const rows = [...world.contracts.values()]
     .filter((c) => c.status === 'open' || c.status === 'accepted' || c.status === 'loaded')
-    .toSorted((a, b) => b.reward - a.reward);
+    .toSorted((a, b) => orderValue(b) - orderValue(a));
   return (
     <table className="ledger">
       <thead>
@@ -202,11 +202,12 @@ function Contracts() {
           <tr key={c.id}>
             <td>
               <EntityLink refTo={{ kind: 'contract', id: c.id }}>
-                {fmtTonnes(c.qty)} {fmtGood(c.good)} → {world.settlements.get(c.settlementId)?.name}
+                {fmtTonnes(c.qty)} {fmtGood(c.good)} {c.kind === 'export' ? 'from' : '→'}{' '}
+                {world.settlements.get(c.settlementId)?.name}
               </EntityLink>
               <span className={`tag ${c.status === 'open' ? '' : 'tag--ok'}`}>{c.status}</span>
             </td>
-            <td className="num">{fmtMoney(c.reward)}</td>
+            <td className="num">{fmtMoney(orderValue(c))}</td>
           </tr>
         ))}
       </tbody>

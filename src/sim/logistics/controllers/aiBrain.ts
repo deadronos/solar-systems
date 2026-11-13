@@ -158,6 +158,10 @@ export class AiBrain implements CompanyController {
     decision: ShipDecision,
   ): void {
     const here = ship.siteId!;
+    if (c.kind === 'export') {
+      this.#sellOrderStep(view, ship, c, decision);
+      return;
+    }
     const dest = view.settlement(c.settlementId)!;
     const held = ship.cargo[c.good] ?? 0;
     const label = `Contract: ${fmtTonnes(c.qty)} ${c.good} → ${dest.name} for ${fmtMoney(c.reward)}`;
@@ -220,6 +224,63 @@ export class AiBrain implements CompanyController {
       return;
     }
     this.#giveUp(ship, c, decision);
+  }
+
+  /** Sell order: fly to the seller, buy the goods on loading, then haul them to a buyer. */
+  #sellOrderStep(
+    view: CompanyView,
+    ship: DeepReadonly<Ship>,
+    c: DeepReadonly<Contract>,
+    decision: ShipDecision,
+  ): void {
+    const here = ship.siteId!;
+    const seller = view.settlement(c.settlementId)?.name;
+    if (here !== c.settlementId) {
+      if (this.#dispatch(view, ship, c.settlementId, decision.commands)) {
+        decision.intent = `Sell order: to ${seller} for ${fmtTonnes(c.qty)} ${c.good}`;
+      } else {
+        this.#giveUp(ship, c, decision);
+      }
+      return;
+    }
+    const fits = cargoMass(ship) + c.qty <= view.shipClass(ship.classId).cargoT + 1e-9;
+    const buyer = this.#bestBuyer(view, c.good, c.qty, here);
+    if (!fits || !buyer || c.escrowCost > view.company.cash) {
+      this.#giveUp(ship, c, decision);
+      return;
+    }
+    decision.commands.push({ type: 'LoadContractCargo', contractId: c.id });
+    this.#jobs.set(ship.id, {
+      kind: 'trade',
+      good: c.good,
+      qty: c.qty,
+      sourceId: here,
+      destId: buyer.id,
+      buyPrice: c.escrowCost / c.qty,
+    });
+    if (this.#dispatch(view, ship, buyer.id, decision.commands)) {
+      decision.intent = `Sell order: ${fmtTonnes(c.qty)} ${c.good} ${seller} → ${view.settlement(buyer.id)?.name}`;
+    } else {
+      // Bought but can't leave yet: the next look routes the cargo to a buyer.
+      decision.intent = `Bought ${fmtTonnes(c.qty)} ${c.good} on ${seller}'s sell order`;
+      this.#nextLook.set(ship.id, view.jd);
+    }
+  }
+
+  /** Settlement (other than `exclude`) paying the most for `qty` of a good, if any. */
+  #bestBuyer(
+    view: CompanyView,
+    good: GoodId,
+    qty: number,
+    exclude: string,
+  ): { id: string; bid: number } | null {
+    let best: { id: string; bid: number } | null = null;
+    for (const s of view.settlements()) {
+      if (s.id === exclude || view.demandRoom(s.id, good) < qty) continue;
+      const bid = view.bid(s.id, good, qty);
+      if (bid > 0 && (!best || bid > best.bid)) best = { id: s.id, bid };
+    }
+    return best;
   }
 
   #giveUp(ship: DeepReadonly<Ship>, c: DeepReadonly<Contract>, decision: ShipDecision): void {
@@ -339,6 +400,11 @@ export class AiBrain implements CompanyController {
       const legs: [string, string][] = [];
       let purchase = 0;
       let first: string;
+      if (c.kind === 'export') {
+        const cand = this.#sellOrderCandidate(view, ship, c, cash, weightDest);
+        if (cand) cands.push(cand);
+        continue;
+      }
       if (c.kind === 'freight') {
         if (!c.pickupSettlementId) continue;
         first = c.pickupSettlementId;
@@ -483,6 +549,62 @@ export class AiBrain implements CompanyController {
 
     cands.sort((a, b) => b.score - a.score);
     return cands[0] ?? null;
+  }
+
+  /** A sell order scored like a trade: buy at the offer price, sell at the best bid. */
+  #sellOrderCandidate(
+    view: CompanyView,
+    ship: DeepReadonly<Ship>,
+    c: DeepReadonly<Contract>,
+    cash: number,
+    weightDest: (destId: string, good: GoodId) => number,
+  ): Candidate | null {
+    const here = ship.siteId!;
+    const p = view.personality;
+    if (c.escrowCost > cash) return null;
+    const buyer = this.#bestBuyer(view, c.good, c.qty, c.settlementId);
+    if (!buyer) return null;
+    const toSeller =
+      here === c.settlementId ? null : this.#legs(view, ship, [[here, c.settlementId]]);
+    if (here !== c.settlementId && (!toSeller || view.jd + toSeller.days > c.deadlineJd))
+      return null;
+    const legs: [string, string][] =
+      here === c.settlementId
+        ? [[here, buyer.id]]
+        : [
+            [here, c.settlementId],
+            [c.settlementId, buyer.id],
+          ];
+    const trip = this.#legs(view, ship, legs);
+    if (!trip) return null;
+    const cost = c.escrowCost + trip.cost;
+    const profit = riskAdjustedProfit(
+      buyer.bid * c.qty,
+      cost,
+      trip.days,
+      p.riskAversion,
+      view.ai.riskHorizonDays,
+    );
+    if (profit <= p.minMarginPct * cost) return null;
+    const score =
+      (profit / Math.max(trip.days, 0.5)) *
+      (1 - view.ai.contractBiasScale * p.contractVsTradeBias) *
+      weightDest(buyer.id, c.good);
+    return {
+      score,
+      label: () =>
+        `Sell order: ${fmtTonnes(c.qty)} ${c.good} ${view.settlement(c.settlementId)?.name} → ${view.settlement(buyer.id)?.name} (+${fmtMoney(profit)} est.)`,
+      execute: (decision) => {
+        this.#jobs.set(ship.id, { kind: 'contract', contractId: c.id });
+        decision.commands.push({ type: 'AcceptContract', contractId: c.id, shipId: ship.id });
+        this.#sellOrderStep(
+          view,
+          ship,
+          { ...c, status: 'accepted', shipId: ship.id, companyId: view.company.id },
+          decision,
+        );
+      },
+    };
   }
 
   /** Sum days and running costs over consecutive legs (null if any leg is infeasible). */

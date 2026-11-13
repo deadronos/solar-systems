@@ -1,5 +1,6 @@
 import type { LogisticsWorld } from '../core/world.ts';
 import { addDemand } from './markets.ts';
+import { creditSettlement, external } from './money.ts';
 import type { NeedTier, Settlement } from './types.ts';
 
 const TIERS: NeedTier[] = ['survival', 'basic', 'comfort'];
@@ -12,7 +13,12 @@ export function runPopulation(s: Settlement, world: LogisticsWorld, dtDays: numb
   if (s.isDeepMarket) return;
   const c = world.constants.population;
   const pop = s.population;
-  s.treasury += c.stipendPerCapitaPerDay * pop * dtDays;
+  // The charter stipend: per head, plus a share of the colony's output value (GDP).
+  let gdpPerDay = 0;
+  for (const g of world.config.goods) gdpPerDay += s.market[g.id].productionPerDay * g.basePrice;
+  const stipend = (c.stipendPerCapitaPerDay * pop + c.stipendGdpFraction * gdpPerDay) * dtDays;
+  external(world, 'stipend', stipend);
+  creditSettlement(world, s, stipend);
   if (pop <= 0) return;
 
   const k = Math.min(1, dtDays / c.satisfactionEmaDays);

@@ -6,13 +6,20 @@ Working notes on which open issues to tackle next (as of 2026-11-13). Not a desi
 
 - PR #43: #24 event log, #13 `PriceChanged` bands, #18 barycenters, #23 moon facing, #26 (part).
 - PR #44: #36 orbit trails, #35 real starfield, #26 (rest).
+- Branch `feat/money-flow`: #11 money ledger and conservation; fees, upkeep and penalties to
+  settlements; GDP stipend; Earth export bounty; colony sell orders; price-elastic Earth;
+  half of each ship's price to the yard. Colony money is steady in total but pools at Ceres
+  (needs #14). Most sell orders expire unfilled.
 
 Every remaining issue is labelled `explore`: each needs a design decision before code (see
 `docs/agents/workflow.md`). The options below are starting points for that decision.
 
 ## 1. Economy (#5): start here, highest gameplay impact
 
-**#11 Colony liquidity drain** (the big one)
+**#11 Colony liquidity drain**: done on `feat/money-flow` (see above). Leftovers: the Ceres
+pooling and the low sell-order fill rate.
+
+**#11 (original notes)**
 
 - 20-year soak: colony treasuries 785M → 28M, contracts posted 171 → 3 per two years. Earth is an
   infinite source and sink, upkeep, fees and penalties are paid to no one, and the Earth stipend

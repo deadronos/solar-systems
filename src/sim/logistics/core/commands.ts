@@ -1,4 +1,5 @@
-import { addDemand, askPrice, bidPrice, maxBuyQty } from '../economy/markets.ts';
+import { addDemand, askPrice, bidPrice, maxBuyQty, recordDeepTrade } from '../economy/markets.ts';
+import { buyShip, companyPays, creditSettlement, external } from '../economy/money.ts';
 import type { Company, Contract, GoodId, Settlement, Ship } from '../economy/types.ts';
 import { planTrip } from '../navigation/planner.ts';
 import { availableFunds, release } from '../economy/treasury.ts';
@@ -59,12 +60,39 @@ function getContract(world: LogisticsWorld, companyId: string, id: string): Cont
   return c;
 }
 
-function spend(world: LogisticsWorld, company: Company, ship: Ship | null, amount: number): void {
+/** Pay `amount` to settlement `to`, if cash allows. */
+function spend(
+  world: LogisticsWorld,
+  company: Company,
+  ship: Ship | null,
+  amount: number,
+  to: Settlement,
+): void {
   if (company.cash < amount) reject('insufficient-cash');
-  company.cash -= amount;
-  company.stats.costs += amount;
-  if (ship) ship.stats.costs += amount;
-  void world;
+  companyPays(world, company, ship, to, amount);
+}
+
+/** Share of a contract's value charged as a penalty when a carrier fails it. */
+export const penaltyFor = (world: LogisticsWorld, c: Contract): number =>
+  (c.kind === 'export' ? c.escrowCost : c.reward) * world.constants.contracts.penaltyFraction;
+
+function setOrigin(ship: Ship, good: GoodId, site: Settlement): void {
+  if (site.isDeepMarket) {
+    if (ship.cargoOrigin) delete ship.cargoOrigin[good];
+  } else {
+    (ship.cargoOrigin ??= {})[good] = site.id;
+  }
+}
+
+/** Take `qty` of a good out of a ship's hold. */
+function unload(ship: Ship, good: GoodId, qty: number): void {
+  const left = (ship.cargo[good] ?? 0) - qty;
+  if (left > 1e-9) {
+    ship.cargo[good] = left;
+  } else {
+    delete ship.cargo[good];
+    if (ship.cargoOrigin) delete ship.cargoOrigin[good];
+  }
 }
 
 function earn(company: Company, ship: Ship | null, amount: number): void {
@@ -94,12 +122,9 @@ export function arrive(world: LogisticsWorld, shipId: string): void {
   ship.plan = null;
   ship.stats.trips++;
   const company = world.companies.get(ship.companyId);
-  if (company) {
-    const fee = world.constants.ships.dockingFee;
-    company.cash -= fee;
-    company.stats.costs += fee;
-    ship.stats.costs += fee;
-  }
+  const port = world.settlements.get(dest);
+  // The docking fee is port income.
+  if (company && port) companyPays(world, company, ship, port, world.constants.ships.dockingFee);
   world.events.append(world.jd, {
     type: 'ShipArrived',
     shipId,
@@ -180,14 +205,13 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const fuelPrice = fuelPricePerTonne(world, from, plan.fuelT);
       const emergency = plan.fuelT > 0 && !from.isDeepMarket && fuel.stock < plan.fuelT;
       cost += plan.fuelT * fuelPrice;
-      spend(world, company, ship, cost);
+      // Fuel (emergency supply included) and exotic propellant are bought from the port.
+      spend(world, company, ship, cost, from);
       if (plan.fuelT > 0) {
         // Ship refuelling is local demand, so depots order more fuel.
         addDemand(from, 'fuel', plan.fuelT);
-        if (!from.isDeepMarket && !emergency) {
-          fuel.stock -= plan.fuelT;
-          from.treasury += plan.fuelT * fuelPrice;
-        }
+        recordDeepTrade(from, 'fuel', -plan.fuelT);
+        if (!from.isDeepMarket && !emergency) fuel.stock -= plan.fuelT;
         world.events.append(world.jd, {
           type: 'FuelPurchased',
           shipId: ship.id,
@@ -214,12 +238,11 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (e.stock < cmd.qty) reject('insufficient-stock');
       const price = askPrice(e, c.markets);
       if (price > cmd.maxPrice) reject('price-above-limit');
-      spend(world, company, ship, price * cmd.qty);
-      if (!site.isDeepMarket) {
-        e.stock -= cmd.qty;
-        site.treasury += price * cmd.qty;
-      }
+      spend(world, company, ship, price * cmd.qty, site);
+      if (!site.isDeepMarket) e.stock -= cmd.qty;
+      recordDeepTrade(site, cmd.good, -cmd.qty);
       ship.cargo[cmd.good] = (ship.cargo[cmd.good] ?? 0) + cmd.qty;
+      setOrigin(ship, cmd.good, site);
       world.events.append(world.jd, {
         type: 'CargoBought',
         shipId: ship.id,
@@ -242,14 +265,20 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const price = bidPrice(e, c.markets, availableFunds(site), cmd.qty);
       if (price <= 0) reject('no-demand');
       if (price < cmd.minPrice) reject('price-below-limit');
-      if (!site.isDeepMarket) {
-        e.stock += cmd.qty;
-        site.treasury -= price * cmd.qty;
-      }
-      const left = (ship.cargo[cmd.good] ?? 0) - cmd.qty;
-      if (left > 1e-9) ship.cargo[cmd.good] = left;
-      else delete ship.cargo[cmd.good];
+      if (!site.isDeepMarket) e.stock += cmd.qty;
+      creditSettlement(world, site, -price * cmd.qty);
+      recordDeepTrade(site, cmd.good, cmd.qty);
+      const origin = ship.cargoOrigin?.[cmd.good];
+      unload(ship, cmd.good, cmd.qty);
       earn(company, ship, price * cmd.qty);
+      // The Earth charter rewards the colony that produced goods exported to Earth.
+      const exporter = site.isDeepMarket && origin ? world.settlements.get(origin) : undefined;
+      const bounty =
+        (world.goods.get(cmd.good)?.basePrice ?? 0) * cmd.qty * c.markets.earthExportBounty;
+      if (exporter && !exporter.isDeepMarket && bounty > 0) {
+        external(world, 'charter', bounty);
+        creditSettlement(world, exporter, bounty);
+      }
       company.stats.tradesCompleted++;
       world.events.append(world.jd, {
         type: 'CargoSold',
@@ -285,25 +314,47 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
     }
     case 'LoadContractCargo': {
       const contract = getContract(world, companyId, cmd.contractId);
-      if (contract.kind !== 'freight' || contract.status !== 'accepted') reject('not-loadable');
+      if (contract.kind === 'delivery' || contract.status !== 'accepted') reject('not-loadable');
       const ship = getShip(world, companyId, contract.shipId ?? '');
       const site = dockedAt(world, ship);
       if (site.id !== contract.pickupSettlementId) reject('wrong-site');
       if (cargoMass(ship) + contract.qty > world.shipClassOf(ship).cargoT + 1e-9)
         reject('cargo-full');
+      if (contract.kind === 'export') {
+        // A sell order: the carrier buys the reserved goods, and they become its cargo.
+        spend(world, company, ship, contract.escrowCost, site);
+        ship.cargo[contract.good] = (ship.cargo[contract.good] ?? 0) + contract.qty;
+        setOrigin(ship, contract.good, site);
+        contract.status = 'completed';
+        ship.contractId = null;
+        company.stats.contractsCompleted++;
+        world.events.append(world.jd, {
+          type: 'SellOrderFilled',
+          contractId: contract.id,
+          companyId,
+          shipId: ship.id,
+          settlementId: site.id,
+          good: contract.good,
+          qty: contract.qty,
+          price: contract.escrowCost / contract.qty,
+        });
+        return;
+      }
       ship.cargo[contract.good] = (ship.cargo[contract.good] ?? 0) + contract.qty;
       contract.status = 'loaded';
+      recordDeepTrade(site, contract.good, -contract.qty);
       // The buyer pays the pickup for the escrowed goods once they are aboard.
       const buyer = world.settlements.get(contract.settlementId);
       if (buyer) {
-        buyer.treasury -= contract.escrowCost;
+        creditSettlement(world, buyer, -contract.escrowCost);
         release(buyer, contract.escrowCost);
       }
-      if (!site.isDeepMarket) site.treasury += contract.escrowCost;
+      creditSettlement(world, site, contract.escrowCost);
       return;
     }
     case 'DeliverContract': {
       const contract = getContract(world, companyId, cmd.contractId);
+      if (contract.kind === 'export') reject('not-deliverable');
       if (contract.status !== 'accepted' && contract.status !== 'loaded') reject('not-deliverable');
       // Freight must be the escrowed goods themselves, i.e. loaded at the pickup.
       if (contract.kind === 'freight' && contract.status !== 'loaded') reject('not-loaded');
@@ -311,11 +362,9 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const site = dockedAt(world, ship);
       if (site.id !== contract.settlementId) reject('wrong-site');
       if ((ship.cargo[contract.good] ?? 0) < contract.qty - 1e-9) reject('not-in-cargo');
-      const left = (ship.cargo[contract.good] ?? 0) - contract.qty;
-      if (left > 1e-9) ship.cargo[contract.good] = left;
-      else delete ship.cargo[contract.good];
+      unload(ship, contract.good, contract.qty);
       site.market[contract.good].stock += contract.qty;
-      site.treasury -= contract.reward;
+      creditSettlement(world, site, -contract.reward);
       release(site, contract.reward);
       earn(company, ship, contract.reward);
       company.stats.contractsCompleted++;
@@ -337,10 +386,11 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const contract = getContract(world, companyId, cmd.contractId);
       if (contract.status === 'loaded') reject('cargo-loaded');
       if (contract.status !== 'accepted') reject('not-accepted');
-      const penalty = contract.reward * c.contracts.penaltyFraction;
-      company.cash -= penalty;
-      company.stats.costs += penalty;
+      // The penalty compensates the settlement that posted the order.
+      const penalty = penaltyFor(world, contract);
+      const poster = world.settlements.get(contract.settlementId);
       const ship = contract.shipId ? world.ships.get(contract.shipId) : undefined;
+      if (poster) companyPays(world, company, null, poster, penalty);
       if (ship) ship.contractId = null;
       world.events.append(world.jd, {
         type: 'ContractAbandoned',
@@ -359,7 +409,8 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const cls = world.shipClasses.get(cmd.classId) ?? reject('unknown-class');
       const yard = world.settlements.get(cmd.shipyardSiteId) ?? reject('unknown-site');
       if (!yard.isShipyard) reject('not-a-shipyard');
-      spend(world, company, null, cls.price);
+      if (company.cash < cls.price) reject('insufficient-cash');
+      buyShip(world, company, yard, cls.price);
       const n = company.shipIds.length + 1;
       const ship = world.addShip(
         company,
@@ -390,6 +441,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (ship.contractId) reject('ship-has-contract');
       const value = world.shipClassOf(ship).price * c.ships.resaleFraction;
       earn(company, null, value);
+      external(world, 'shipyard', value);
       world.events.append(world.jd, {
         type: 'ShipSold',
         shipId: ship.id,
@@ -468,10 +520,14 @@ export function runShips(world: LogisticsWorld, dtDays: number, shipIds: readonl
     if (!ship || ship.state === 'building') continue;
     const company = world.companies.get(ship.companyId);
     if (!company) continue;
+    // Upkeep is crew wages and services, paid where the ship is or last docked.
+    const port = world.settlements.get(ship.siteId ?? ship.plan?.fromSiteId ?? '');
     const upkeep = world.shipClassOf(ship).upkeepPerDay * dtDays;
-    company.cash -= upkeep;
-    company.stats.costs += upkeep;
-    ship.stats.costs += upkeep;
+    if (port) {
+      companyPays(world, company, ship, port, upkeep);
+    } else {
+      throw new Error(`Ship "${ship.id}" has no port for upkeep`);
+    }
     if (ship.state !== 'docked' || ship.contractId || cargoMass(ship) > 0) ship.busyDays += dtDays;
   }
 }

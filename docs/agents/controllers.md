@@ -59,6 +59,9 @@ To add a command: add a union member to `Command`, a `case` in `apply()` that va
 - **Candidates and scoring:**
   - Open contracts are costed per ship, using landed source cost plus the cost of each leg.
     Contract and trade estimates include the scenario docking fee per leg.
+  - Sell orders (`export` contracts) are scored like trades: the offer price plus legs to the
+    seller and on to the best bid, risk-discounted. On loading, the ship's job becomes a
+    trade to that buyer.
   - Trades come from here, or after repositioning to a cheap source. The top 6 raw margins get
     a real trip estimate.
   - The score is profit per day, weighted by the company's personality (`contractVsTradeBias`,

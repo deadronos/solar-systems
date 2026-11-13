@@ -1,6 +1,6 @@
 import { askPrice, GOOD_IDS } from '../../../sim/logistics/index.ts';
 import { EntityLink, Meter, Sparkline, useTick, useWorld } from '../common.tsx';
-import { fmtGood, fmtMoney, fmtTonnes } from '../format.ts';
+import { fmtGood, fmtMoney, fmtTonnes, orderValue } from '../format.ts';
 
 export function SettlementInspector({ id }: { id: string }) {
   useTick(3);
@@ -102,7 +102,8 @@ export function SettlementInspector({ id }: { id: string }) {
             {orders.map((c) => (
               <li key={c.id}>
                 <EntityLink refTo={{ kind: 'contract', id: c.id }}>
-                  {fmtTonnes(c.qty)} {fmtGood(c.good)} · {fmtMoney(c.reward)}
+                  {c.kind === 'export' ? 'Selling ' : ''}
+                  {fmtTonnes(c.qty)} {fmtGood(c.good)} · {fmtMoney(orderValue(c))}
                 </EntityLink>{' '}
                 <span className="tag">{c.status}</span>
               </li>

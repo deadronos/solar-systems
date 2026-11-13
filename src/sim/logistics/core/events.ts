@@ -18,8 +18,21 @@ export type EventPayload =
       good: string;
       qty: number;
       reward: number;
-      kind: 'delivery' | 'freight';
+      kind: 'delivery' | 'freight' | 'export';
       pickupSettlementId?: string;
+      /** Export orders: what the carrier pays for the goods (`reward` is 0). */
+      price?: number;
+    }
+  | {
+      type: 'SellOrderFilled';
+      contractId: string;
+      companyId: string;
+      shipId: string;
+      settlementId: string;
+      good: string;
+      qty: number;
+      /** Per tonne. */
+      price: number;
     }
   | {
       type: 'ContractAccepted';
@@ -224,6 +237,7 @@ function retiredId(e: EventPayload): string | null {
       return e.shipId;
     case 'ContractCompleted':
     case 'ContractExpired':
+    case 'SellOrderFilled':
       return e.contractId;
     case 'CompanyBankrupt':
       return e.companyId;

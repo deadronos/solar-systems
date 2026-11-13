@@ -110,6 +110,27 @@ export function bidPrice(
 export const maxBuyQty = (e: MarketEntry, c = ECONOMY_CONSTANTS.markets): number =>
   Math.max(0, c.maxStockMultiple * e.targetStock - e.stock);
 
+/**
+ * Note a trade with a deep market: `soldT` tonnes sold to it (negative when bought from it).
+ * Its price responds on the next market update. A no-op for colonies.
+ */
+export function recordDeepTrade(s: Settlement, good: GoodId, soldT: number): void {
+  if (!s.isDeepMarket) return;
+  const e = s.market[good];
+  e.netSoldT = (e.netSoldT ?? 0) + soldT;
+}
+
+/** Deep market price: falls as traders sell to it, rises as they buy, within narrow clamps. */
+export function deepPriceFor(
+  base: number,
+  netSoldT: number,
+  c: EconomyConstants['markets'],
+): number {
+  const ratio = (c.deepMarketDepthT + netSoldT) / c.deepMarketDepthT;
+  const raw = ratio > 0 ? ratio ** -c.elasticity : Number.POSITIVE_INFINITY;
+  return base * Math.min(c.deepPriceClampMax, Math.max(c.deepPriceClampMin, raw));
+}
+
 export function addDemand(s: Settlement, good: keyof Settlement['market'], qty: number): void {
   s.flows.demand[good] = (s.flows.demand[good] ?? 0) + qty;
 }
@@ -120,7 +141,8 @@ export function addSupply(s: Settlement, good: keyof Settlement['market'], qty: 
 
 /**
  * Fold this tick's flows into the rolling consumption/production rates, recompute target
- * stock and price. Deep markets keep fixed prices and effectively unlimited stock.
+ * stock and price. Deep markets keep effectively unlimited stock; their price moves only
+ * with recent net trade (`deepPriceFor`).
  */
 export function updateMarket(s: Settlement, world: LogisticsWorld, dtDays: number): void {
   const c = world.constants.markets;
@@ -131,17 +153,19 @@ export function updateMarket(s: Settlement, world: LogisticsWorld, dtDays: numbe
     if (s.isDeepMarket) {
       e.stock = c.deepMarketStock;
       e.targetStock = c.deepMarketStock;
-      e.price = base;
       e.consumptionPerDay = 1;
-      continue;
+      const sold = e.netSoldT ?? 0;
+      if (sold !== 0) e.netSoldT = sold - sold * Math.min(1, dtDays / c.deepMarketRecoveryDays);
+      e.price = deepPriceFor(base, e.netSoldT ?? 0, c);
+    } else {
+      const demand = (s.flows.demand[g] ?? 0) / dtDays;
+      const supply = (s.flows.supply[g] ?? 0) / dtDays;
+      e.consumptionPerDay += (demand - e.consumptionPerDay) * k;
+      e.productionPerDay += (supply - e.productionPerDay) * k;
+      e.targetStock = targetFor(e.consumptionPerDay, e.productionPerDay, c);
+      e.price =
+        e.targetStock > 0 ? priceFor(base, e.stock, e.targetStock, c) : base * c.priceClampMin;
     }
-    const demand = (s.flows.demand[g] ?? 0) / dtDays;
-    const supply = (s.flows.supply[g] ?? 0) / dtDays;
-    e.consumptionPerDay += (demand - e.consumptionPerDay) * k;
-    e.productionPerDay += (supply - e.productionPerDay) * k;
-    e.targetStock = targetFor(e.consumptionPerDay, e.productionPerDay, c);
-    e.price =
-      e.targetStock > 0 ? priceFor(base, e.stock, e.targetStock, c) : base * c.priceClampMin;
     if (shouldAnnouncePrice(e, base, world.jd)) {
       world.events.append(world.jd, {
         type: 'PriceChanged',

@@ -11,7 +11,8 @@ import { StatsRecorder, type StatsState } from './economy/stats.ts';
 import { TICK_DAYS } from './core/time.ts';
 import { runPopulation } from './economy/population.ts';
 import { runProduction } from './economy/production.ts';
-import type { ScenarioConfig } from './economy/types.ts';
+import { ECONOMY_CONSTANTS } from './data/economyConstants.ts';
+import type { EconomyConstants, ScenarioConfig } from './economy/types.ts';
 
 /**
  * Build a world and install every system in the fixed tick order:
@@ -114,10 +115,20 @@ export function snapshotWorld(world: LogisticsWorld): WorldSnapshot {
   });
 }
 
+/** Fill settings added since a snapshot was taken (e.g. the #11 money settings) with defaults. */
+function withDefaults(saved: EconomyConstants): EconomyConstants {
+  const merged = { ...ECONOMY_CONSTANTS } as Record<string, object>;
+  for (const [section, values] of Object.entries(saved)) {
+    merged[section] = { ...merged[section], ...values };
+  }
+  return merged as unknown as EconomyConstants;
+}
+
 /** Restore a snapshot with the same ephemeris catalog used by the original world. */
 export function restoreWorld(snapshot: WorldSnapshot, ephemeris: Ephemeris): LogisticsWorld {
   if (snapshot.version !== 1) throw new Error(`Unsupported snapshot version: ${snapshot.version}`);
   const state = structuredClone(snapshot);
+  state.config = { ...state.config, constants: withDefaults(state.config.constants) };
   const world = createWorld(state.config, ephemeris, {
     controllers: state.controllerRunner !== null,
   });

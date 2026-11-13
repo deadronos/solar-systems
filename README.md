@@ -21,10 +21,12 @@ pnpm check        # typecheck + lint + format check + tests
   `src/sim/logistics/data/`.
 - **Economy:** 14 goods, recipe-based production (chains are just recipes with inputs),
   supply/demand prices per settlement, population with survival/basic/comfort needs, housing
-  growth, Earth charter funding.
+  growth, Earth charter funding (a stipend per head and per unit of output, plus a bounty on
+  exports sold to Earth). Earth's prices move with recent trade volume. A money ledger tracks
+  every credit that enters or leaves the economy.
 - **Orders:** settlements post _delivery_ orders (carrier sources the goods) or _freight_ orders
-  (goods pre-bought at the source; carrier only hauls). Unfilled orders are reposted with
-  rising fees. Same-body neighbours trade directly via a local shuttle.
+  (goods pre-bought at the source; carrier only hauls). Producers post _sell_ orders for
+  surplus at a discount. Unfilled buy orders are reposted with rising fees. Same-body neighbours trade directly via a local shuttle.
 - **Ships:** 5 engine tiers — chemical and nuclear/ion (Lambert transfers, launch windows),
   fusion torch and antimatter (accelerate/flip/decelerate, antimatter capped below c), jump
   drive (charge, then FTL). Fuel is bought at the departure port (emergency fuel at 3× if dry).
