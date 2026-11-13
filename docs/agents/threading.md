@@ -22,6 +22,7 @@ Where the economy runs and how the main thread sees it. Read this before changin
 - `WorkerEconomy`: spawns the worker **lazily on the first `advance`** (so StrictMode
   double-construction costs nothing). It keeps a **read-only replica** world built with the
   same `createWorld(..., { controllers: false })`, so the UI has data before the first delta.
+  Unmounting `SimulationProvider` or replacing its simulation disposes the old worker.
 - `Simulation` falls back to inline if the worker fails **before** it delivered anything. A
   failure after start sets `economyError` and stops the economy (#32).
 
