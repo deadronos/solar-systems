@@ -1,0 +1,20 @@
+/** Public API of the logistics simulation layer. */
+export * from './core/time.ts';
+export * from './core/events.ts';
+export { Scheduler } from './core/scheduler.ts';
+export * from './core/world.ts';
+export * from './economy/types.ts';
+export type * from './navigation/plan.ts';
+export { DEFAULT_SCENARIO } from './data/scenario.ts';
+export { evaluatePlan } from './navigation/plan.ts';
+export { NavContext, estimateTrip, planTrip, type TripEstimate } from './navigation/planner.ts';
+export { createWorld } from './createWorld.ts';
+export { askPrice, bidPrice, maxBuyQty, priceFor } from './economy/markets.ts';
+export { applyCommand, cargoMass, removeShip, type Command } from './core/commands.ts';
+export { inboundQty } from './economy/contracts.ts';
+export { netWorth, spawnEntrant } from './economy/companies.ts';
+export { AiBrain, riskAdjustedProfit } from './controllers/aiBrain.ts';
+export { installControllers } from './controllers/runner.ts';
+export { createCompanyView } from './controllers/view.ts';
+export type * from './controllers/types.ts';
+export { StatsRecorder, type Sample, type StatKey } from './economy/stats.ts';

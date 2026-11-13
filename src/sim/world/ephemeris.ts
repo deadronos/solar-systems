@@ -108,6 +108,25 @@ export class Ephemeris {
     return this.#rt(id).position;
   }
 
+  /**
+   * Heliocentric position at an arbitrary date, without touching the cached state that
+   * `update()` maintains. Used for planning (km, ecliptic J2000).
+   */
+  positionAt(id: string, jd: number, out: Vec3): Vec3 {
+    const rt = this.#rt(id);
+    const { def, parent } = rt;
+    if (!def.orbit || !parent) {
+      out.x = out.y = out.z = 0;
+      return out;
+    }
+    const local = positionFromElements(elementsAt(def.orbit, jd), vec3());
+    if (def.orbitFrame === 'parentEquator' && parent.equatorFrame) {
+      transform(local, parent.equatorFrame, local);
+    }
+    this.positionAt(parent.def.id, jd, out);
+    return add(out, out, local);
+  }
+
   /** Position relative to the parent body, in km. Live object. */
   localPosition(id: string): Readonly<Vec3> {
     return this.#rt(id).local;

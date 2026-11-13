@@ -1,18 +1,25 @@
 import { useMemo } from 'react';
 import { useSimulation } from '../render/index.ts';
 import type { BodyDefinition } from '../sim/index.ts';
+import { useSelectionStore } from '../state/selectionStore.ts';
 import { useViewStore } from '../state/viewStore.ts';
 
 function Item({ def, depth }: { def: BodyDefinition; depth: number }) {
   const focusId = useViewStore((s) => s.focusId);
   const setFocus = useViewStore((s) => s.setFocus);
+  const select = useSelectionStore((s) => s.select);
+  const setFollow = useSelectionStore((s) => s.setFollow);
   return (
     <li>
       <button
         type="button"
         className={`picker__item ${focusId === def.id ? 'active' : ''}`}
         style={{ paddingLeft: `${0.6 + depth * 0.9}rem` }}
-        onClick={() => setFocus(def.id)}
+        onClick={() => {
+          setFollow(false);
+          setFocus(def.id);
+          select({ kind: 'body', id: def.id });
+        }}
       >
         {def.name}
       </button>
@@ -20,7 +27,7 @@ function Item({ def, depth }: { def: BodyDefinition; depth: number }) {
   );
 }
 
-export function BodyPicker() {
+export function BodyPicker({ embedded = false }: { embedded?: boolean }) {
   const { ephemeris } = useSimulation();
 
   const groups = useMemo(() => {
@@ -55,7 +62,7 @@ export function BodyPicker() {
   }, [ephemeris]);
 
   return (
-    <nav className="panel picker" aria-label="Bodies">
+    <nav className={embedded ? 'picker picker--embedded' : 'panel picker'} aria-label="Bodies">
       {groups.map((g) => (
         <div key={g.title} className="picker__group">
           <h2>{g.title}</h2>

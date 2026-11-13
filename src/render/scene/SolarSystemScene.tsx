@@ -7,6 +7,9 @@ import { Body } from './Body.tsx';
 import { CameraRig } from './CameraRig.tsx';
 import { OrbitPath } from './OrbitPath.tsx';
 import { SimDriver } from './SimDriver.tsx';
+import { MarkerLayer } from '../logistics/MarkerLayer.tsx';
+import { TradeFlowLayer } from '../logistics/TradeFlowLayer.tsx';
+import { TrajectoryLayer } from '../logistics/TrajectoryLayer.tsx';
 import { Starfield } from './Starfield.tsx';
 
 function SceneContents() {
@@ -29,6 +32,13 @@ function SceneContents() {
       {sim.belts.map((belt) => (
         <BeltPoints key={belt.def.id} belt={belt} />
       ))}
+      {sim.logistics && (
+        <>
+          <MarkerLayer />
+          <TrajectoryLayer />
+          <TradeFlowLayer />
+        </>
+      )}
     </>
   );
 }
