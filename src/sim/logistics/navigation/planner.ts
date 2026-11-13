@@ -13,8 +13,6 @@ const G0_KM_S2 = 0.009_806_65;
 /** Hold durations (days). */
 const SURFACE_LEG_DAYS = 0.25;
 const SAME_BODY_DAYS = 0.5;
-/** Estimates are reused for this many days (launch windows move slowly). */
-const ESTIMATE_BUCKET_DAYS = 2;
 const GRID_REFRESH_DAYS = 120;
 /** Surface ascent/descent Δv as a multiple of circular speed at the surface. */
 const SURFACE_DV_FACTOR = 1.2;
@@ -112,17 +110,16 @@ export class NavContext {
     return { synodicDays, hohmannDays };
   }
 
-  /** Immediate-departure sweep, shared by all ship classes (cached per whole day). */
+  /** Immediate-departure sweep, shared by all ship classes (cached by exact departure date). */
   sweepFrom(fromBody: string, toBody: string, t0: number): Cell[] {
-    const day = Math.ceil(t0);
-    const key = `${fromBody}>${toBody}@${day}`;
+    const key = `${fromBody}>${toBody}@${t0}`;
     let cells = this.#sweeps.get(key);
     if (!cells) {
       if (this.#sweeps.size > 5_000) this.#sweeps.clear();
       cells = this.tofSweep(
         fromBody,
         toBody,
-        day,
+        t0,
         this.pairTimescales(fromBody, toBody).hohmannDays,
       );
       this.#sweeps.set(key, cells);
@@ -130,28 +127,20 @@ export class NavContext {
     return cells;
   }
 
-  /**
-   * Trip estimate shared world-wide per (class, route, time bucket). Cached results that
-   * would depart in the past are shifted to depart now.
-   */
+  /** Share estimates at the same simulation instant without reusing orbital geometry across ticks. */
   estimateCached(
     cls: ShipClass,
     from: Settlement,
     to: Settlement,
     jd: number,
   ): TripEstimate | null {
-    const bucket = Math.floor(jd / ESTIMATE_BUCKET_DAYS);
-    const key = `${cls.id}|${from.id}|${to.id}|${bucket}`;
-    if (!this.#estimates.has(key)) {
-      if (this.#estimates.size > 20_000) this.#estimates.clear();
-      this.#estimates.set(key, estimateTrip(cls, from, to, jd, this));
-    }
-    const e = this.#estimates.get(key)!;
-    if (e && e.departJd < jd) {
-      const shift = jd - e.departJd;
-      return { ...e, departJd: e.departJd + shift, arriveJd: e.arriveJd + shift };
-    }
-    return e;
+    const key = `${cls.id}|${from.id}|${to.id}|${jd}`;
+    const cached = this.#estimates.get(key);
+    if (cached !== undefined) return cached;
+    if (this.#estimates.size > 20_000) this.#estimates.clear();
+    const estimate = estimateTrip(cls, from, to, jd, this);
+    this.#estimates.set(key, estimate);
+    return estimate;
   }
 
   /** Lambert solutions for 16 times of flight at a given departure (heliocentric). */
@@ -263,11 +252,8 @@ function solveTrip(
       if (r.leg) transferLegs.push(r.leg);
     } else {
       const t0 = earliestJd + ascentDays;
-      const { hohmannDays } = ctx.pairTimescales(fromBody, toBody);
       // Immediate departures first, then later launch windows (earlier cells win ties).
-      const now = withLegs
-        ? ctx.tofSweep(fromBody, toBody, t0, hohmannDays)
-        : ctx.sweepFrom(fromBody, toBody, t0);
+      const now = ctx.sweepFrom(fromBody, toBody, t0);
       const later = ctx.porkchop.cells(fromBody, toBody, t0);
       let best: Cell | null = null;
       let bestScore = Number.POSITIVE_INFINITY;

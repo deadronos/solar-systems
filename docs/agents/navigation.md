@@ -10,13 +10,15 @@ this before changing `src/sim/logistics/navigation/*` or ship classes.
 
 - `estimateTrip(cls, from, to, jd, ctx)` → `TripEstimate | null` (depart/arrive jd, Δv, fuel
   tonnes, exotic cost). It is cheap, builds no legs, and AI scoring and contract pricing use it.
-  Go through `world.nav.estimateCached(...)` (2-day buckets) in economy code.
+  Go through `world.nav.estimateCached(...)` in economy code. Estimates are cached by class,
+  route and exact request Julian date.
 - `planTrip(...)` → `TrajectoryPlan | null` with renderable `legs`. Only `PlanAndDispatch`
   calls it.
 - Both return `null` for infeasible trips (over the Δv budget, from === to, no Lambert
   solution). Callers must handle `null`; never throw for infeasibility.
 - `NavContext` (`world.nav`) holds the caches: per-pair porkchop grids (rebuilt every 120
-  days), immediate-departure sweeps per whole day, and estimates. Caches are cleared wholesale
+  days), immediate-departure sweeps shared by estimates and plans at the exact transfer
+  start date, and estimates. Sweep and estimate caches are cleared wholesale
   past a size cap.
 
 ## Engine tiers (`ShipClass.tier`)
@@ -45,7 +47,5 @@ The renderer samples it once per plan. Plans are plain data and are mirrored to 
 - **Fuel** is linear in Δv and ignores cargo mass (#20).
 - **Torch flights** ignore solar gravity and the velocity difference between origin and
   target (#21).
-- **The estimate cache** shifts stale estimates in time instead of re-solving, so an estimate
-  can differ from the dispatched plan (#22).
 
 Treat these as the current spec. If you fix one, update this section and the issue.
