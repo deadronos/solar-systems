@@ -100,6 +100,7 @@ controllers) live in [`docs/agents/`](docs/agents/); start from [AGENTS.md](AGEN
 - **Belts:** synthetic particles drawn from the observed element distributions: Kirkwood gaps,
   Hildas in 3:2 resonance, L4/L5 trojans, plutinos, cold and hot classical Kuiper belt,
   and the scattered disc.
-- **Simplifications:** the Sun stays fixed at the origin (no barycentric wobble). Earth is
-  placed at the Earth–Moon barycenter. UTC is used in place of TDB. There are no mutual
-  perturbations between bodies.
+- **Simplifications:** the Sun stays fixed at the origin (no barycentric wobble). Earth and
+  Pluto are offset from the Earth–Moon and Pluto–Charon barycenters that their elements
+  describe, but other moons orbit their planet's centre. UTC is used in place of TDB. There are
+  no mutual perturbations between bodies.

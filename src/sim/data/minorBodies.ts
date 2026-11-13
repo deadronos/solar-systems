@@ -15,6 +15,8 @@ export const MINOR_BODIES: readonly BodyDefinition[] = [
     parentId: 'sun',
     radiusKm: 1_188.3,
     gm: 869.6,
+    // The elements are for the Pluto–Charon barycenter, which lies outside Pluto.
+    barycentricPartner: 'charon',
     // Standish's original Tables 2a/2b include Pluto (omitted from JPL's current web tables).
     // https://www.rschr.de/PRPDF/aprx_pos_planets.pdf
     orbit: {

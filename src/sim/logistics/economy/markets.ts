@@ -8,8 +8,51 @@ import {
   type Settlement,
 } from './types.ts';
 
-/** Price change (fraction) that triggers a PriceChanged event. */
-const ANNOUNCE_THRESHOLD = 0.25;
+export type PriceBand = 'cheap' | 'normal' | 'scarce';
+
+/** Price / base price below which a good is "cheap". */
+const CHEAP_BELOW = 0.7;
+/** Price / base price above which a good is "scarce". */
+const SCARCE_ABOVE = 1.5;
+/** How far (as a factor) past a band edge a price must go to leave its band (hysteresis). */
+const BAND_HYSTERESIS = 1.15;
+/**
+ * Minimum days between PriceChanged events for one (settlement, good). Thin colony markets
+ * swing between the price clamps, and without this they flood the event log (#13).
+ */
+const ANNOUNCE_MIN_INTERVAL_DAYS = 30;
+
+/** Band of a price relative to the good's base price (no hysteresis). */
+export function priceBand(price: number, base: number): PriceBand {
+  const r = price / base;
+  return r < CHEAP_BELOW ? 'cheap' : r > SCARCE_ABOVE ? 'scarce' : 'normal';
+}
+
+/**
+ * Band the price is in now, given the last announced band: a price must clear a band edge by
+ * `BAND_HYSTERESIS` to leave it, so a price hovering at an edge doesn't flap.
+ */
+function bandWithHysteresis(price: number, base: number, from: PriceBand): PriceBand {
+  const r = price / base;
+  const h = BAND_HYSTERESIS;
+  if (from === 'cheap')
+    return r > SCARCE_ABOVE * h ? 'scarce' : r > CHEAP_BELOW * h ? 'normal' : from;
+  if (from === 'scarce')
+    return r < CHEAP_BELOW / h ? 'cheap' : r < SCARCE_ABOVE / h ? 'normal' : from;
+  return r < CHEAP_BELOW / h ? 'cheap' : r > SCARCE_ABOVE * h ? 'scarce' : from;
+}
+
+/**
+ * Whether the price has moved to another band since the last PriceChanged, and the minimum
+ * interval has passed. Price history itself lives in the daily stats series, not the log.
+ */
+export function shouldAnnouncePrice(e: MarketEntry, base: number, jd: number): boolean {
+  if (!(base > 0)) return false;
+  const from = priceBand(e.lastAnnouncedPrice, base);
+  if (bandWithHysteresis(e.price, base, from) === from) return false;
+  // Snapshots from before #13 have no announcement date.
+  return jd - (e.lastAnnouncedJd ?? Number.NEGATIVE_INFINITY) >= ANNOUNCE_MIN_INTERVAL_DAYS;
+}
 
 /** Tonnes above a source's reserve. A negative value means the reserve is short. */
 export function spareStock(
@@ -99,7 +142,7 @@ export function updateMarket(s: Settlement, world: LogisticsWorld, dtDays: numbe
     e.targetStock = targetFor(e.consumptionPerDay, e.productionPerDay, c);
     e.price =
       e.targetStock > 0 ? priceFor(base, e.stock, e.targetStock, c) : base * c.priceClampMin;
-    if (Math.abs(e.price / e.lastAnnouncedPrice - 1) > ANNOUNCE_THRESHOLD) {
+    if (shouldAnnouncePrice(e, base, world.jd)) {
       world.events.append(world.jd, {
         type: 'PriceChanged',
         settlementId: s.id,
@@ -108,6 +151,7 @@ export function updateMarket(s: Settlement, world: LogisticsWorld, dtDays: numbe
         to: e.price,
       });
       e.lastAnnouncedPrice = e.price;
+      e.lastAnnouncedJd = world.jd;
     }
   }
   s.flows.demand = {};

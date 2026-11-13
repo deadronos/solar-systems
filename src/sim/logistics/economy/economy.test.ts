@@ -4,7 +4,14 @@ import { Ephemeris } from '../../world/ephemeris.ts';
 import { START_JD } from '../core/time.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { createWorld } from '../createWorld.ts';
-import { askPrice, bidPrice, maxBuyQty, priceFor } from './markets.ts';
+import {
+  askPrice,
+  bidPrice,
+  maxBuyQty,
+  priceBand,
+  priceFor,
+  shouldAnnouncePrice,
+} from './markets.ts';
 import type { ScenarioConfig, SettlementDef } from './types.ts';
 
 const eph = new Ephemeris(DEFAULT_CATALOG);
@@ -180,5 +187,40 @@ describe('default scenario', () => {
         expect(Number.isFinite(e.price)).toBe(true);
       }
     }
+  });
+});
+
+describe('PriceChanged announcements', () => {
+  const entry = (price: number, lastAnnouncedPrice: number, lastAnnouncedJd?: number) => ({
+    stock: 10,
+    targetStock: 10,
+    price,
+    consumptionPerDay: 1,
+    productionPerDay: 0,
+    lastAnnouncedPrice,
+    ...(lastAnnouncedJd === undefined ? {} : { lastAnnouncedJd }),
+  });
+
+  it('classifies prices into bands around the base price', () => {
+    expect(priceBand(50, 100)).toBe('cheap');
+    expect(priceBand(100, 100)).toBe('normal');
+    expect(priceBand(200, 100)).toBe('scarce');
+  });
+
+  it('announces band crossings only, with hysteresis at the edges', () => {
+    // Moves inside the normal band are not announced, however large.
+    expect(shouldAnnouncePrice(entry(140, 80), 100, 1_000)).toBe(false);
+    // Just past the scarce edge is still inside the hysteresis margin.
+    expect(shouldAnnouncePrice(entry(160, 100), 100, 1_000)).toBe(false);
+    expect(shouldAnnouncePrice(entry(180, 100), 100, 1_000)).toBe(true);
+    // Leaving "scarce" needs a clear drop back below the edge.
+    expect(shouldAnnouncePrice(entry(140, 200), 100, 1_000)).toBe(false);
+    expect(shouldAnnouncePrice(entry(120, 200), 100, 1_000)).toBe(true);
+  });
+
+  it('waits out the minimum interval since the last announcement', () => {
+    expect(shouldAnnouncePrice(entry(300, 100, 990), 100, 1_000)).toBe(false);
+    expect(shouldAnnouncePrice(entry(300, 100, 960), 100, 1_000)).toBe(true);
+    expect(shouldAnnouncePrice(entry(300, 100), 100, 1_000)).toBe(true);
   });
 });

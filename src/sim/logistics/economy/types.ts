@@ -79,6 +79,8 @@ export interface MarketEntry {
   productionPerDay: number;
   /** Last price announced via PriceChanged. */
   lastAnnouncedPrice: number;
+  /** Date of that announcement; absent until the first one (and in older snapshots). */
+  lastAnnouncedJd?: number;
 }
 
 export interface Satisfaction {

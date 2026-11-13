@@ -38,4 +38,11 @@ export interface BodyDefinition {
   orbitFrame?: OrbitFrame;
   /** Explicit spin, or 'synchronous' for tidally locked moons (pole = parent pole). */
   rotation?: RotationModel | 'synchronous';
+  /**
+   * Child (moon) that this body's `orbit` is the barycenter with: JPL's "Earth" elements
+   * describe the Earth–Moon barycenter. The ephemeris offsets this body by `−μ·r_partner`,
+   * with `μ = GM_partner / (GM + GM_partner)`, so both bodies need `gm`. The partner's own
+   * orbit stays relative to this body's centre.
+   */
+  barycentricPartner?: string;
 }

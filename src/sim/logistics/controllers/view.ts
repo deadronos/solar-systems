@@ -1,10 +1,11 @@
 import { AU_KM } from '../../constants.ts';
 import { length, vec3 } from '../../math/vec3.ts';
 import { fuelPricePerTonne } from '../core/commands.ts';
+import { sortedIds } from '../core/sortedIds.ts';
 import type { LogisticsWorld } from '../core/world.ts';
 import { askPrice, bidPrice, maxBuyQty } from '../economy/markets.ts';
 import { availableFunds } from '../economy/treasury.ts';
-import type { GoodId } from '../economy/types.ts';
+import type { GoodId, Settlement } from '../economy/types.ts';
 import type { CompanyView, DeepReadonly } from './types.ts';
 
 const scratch = vec3();
@@ -17,13 +18,20 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
   const c = world.constants;
   const snapshots = new WeakMap<object, object>();
   // Copy only values the controller reads and reuse nested copies across view queries.
+  // Plain loops: this runs for every settlement, ship and contract a controller looks at.
   const snapshot = <T>(value: T): DeepReadonly<T> => {
     if (typeof value !== 'object' || value === null) return value as DeepReadonly<T>;
     const cached = snapshots.get(value);
     if (cached) return cached as DeepReadonly<T>;
-    const copy = Array.isArray(value)
-      ? value.map(snapshot)
-      : Object.fromEntries(Object.entries(value).map(([key, child]) => [key, snapshot(child)]));
+    let copy: unknown[] | Record<string, unknown>;
+    if (Array.isArray(value)) {
+      copy = Array.from({ length: value.length });
+      for (let i = 0; i < value.length; i++) copy[i] = snapshot(value[i]);
+    } else {
+      copy = {};
+      const src = value as Record<string, unknown>;
+      for (const key of Object.keys(src)) copy[key] = snapshot(src[key]);
+    }
     const frozen = Object.freeze(copy);
     snapshots.set(value, frozen);
     return frozen as DeepReadonly<T>;
@@ -33,9 +41,7 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
     if (!s) throw new Error(`Unknown settlement "${id}"`);
     return s;
   };
-  const settlementsSorted = [...world.settlements.keys()]
-    .toSorted()
-    .map((id) => world.settlements.get(id)!);
+  let settlementsSorted: Settlement[] | null = null;
 
   return {
     jd: world.jd,
@@ -51,12 +57,16 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
           return ship ? [snapshot(ship)] : [];
         }),
       ),
-    settlements: () => snapshot(settlementsSorted),
+    settlements: () =>
+      snapshot(
+        (settlementsSorted ??= sortedIds(world.settlements).map((id) =>
+          world.settlements.get(id)!,
+        )),
+      ),
     settlement: (id) => snapshot(world.settlements.get(id)),
     openContracts: () =>
       Object.freeze(
-        [...world.contracts.keys()]
-          .toSorted()
+        sortedIds(world.contracts)
           .map((id) => world.contracts.get(id)!)
           .filter((x) => x.status === 'open')
           .map(snapshot),

@@ -55,7 +55,8 @@ export const PLANETS: readonly BodyDefinition[] = [
     radiusKm: 6_371.0,
     flattening: 0.003_352_8,
     gm: 398_600.435,
-    // Earth–Moon barycenter elements; the ~4,700 km offset to Earth's center is ignored.
+    // Earth–Moon barycenter elements; Earth sits ~4,670 km from it, opposite the Moon.
+    barycentricPartner: 'moon',
     orbit: {
       kind: 'jplApprox',
       elements: [1.00000018, 0.01673163, -0.00054346, 100.46691572, 102.93005885, -5.11260389],

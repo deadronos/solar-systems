@@ -69,6 +69,58 @@ describe('EventLog', () => {
     log.append(2, { type: 'ShipIdle', shipId: 's', companyId: 'c' });
     expect(seen).toEqual(['ShipIdle']);
   });
+
+  it('wraps the ring and per-entity lists, oldest dropped first', () => {
+    const log = new EventLog();
+    for (let i = 0; i < 10_250; i++) {
+      log.append(i, { type: 'ShipIdle', shipId: 's', companyId: `c${i}` });
+    }
+    expect(log.recent(1)[0]!.seq).toBe(10_249);
+    const since = log.since(0);
+    expect(since).toHaveLength(10_000);
+    expect(since[0]!.seq).toBe(250);
+    expect(since.at(-1)!.seq).toBe(10_249);
+    expect(log.since(10_240).map((e) => e.seq)).toEqual([
+      10_240, 10_241, 10_242, 10_243, 10_244, 10_245, 10_246, 10_247, 10_248, 10_249,
+    ]);
+    const ship = log.forEntity('s', 500);
+    expect(ship).toHaveLength(200);
+    expect(ship[0]!.seq).toBe(10_249);
+    expect(ship.at(-1)!.seq).toBe(10_050);
+
+    const copy = new EventLog();
+    copy.restore(structuredClone(log.capture()));
+    expect(copy.forEntity('s', 3)).toEqual(log.forEntity('s', 3));
+    expect(copy.since(0)).toEqual(since);
+    expect(copy.hash()).toBe(log.hash());
+  });
+
+  it('hashes every field, including optional ones', () => {
+    const a = new EventLog();
+    const b = new EventLog();
+    const base = { type: 'FuelPurchased', shipId: 's', companyId: 'c', settlementId: 'm' } as const;
+    a.append(1, { ...base, qty: 1, cost: 2 });
+    b.append(1, { ...base, qty: 1, cost: 2, emergency: true });
+    expect(a.hash()).not.toBe(b.hash());
+    const c = new EventLog();
+    c.append(1, { ...base, qty: 1, cost: 2.000_000_001 });
+    expect(a.hash()).not.toBe(c.hash());
+  });
+
+  it('drops retired entities after the grace period, also on a replica', () => {
+    const log = new EventLog();
+    const replica = new EventLog();
+    log.append(1, { type: 'ShipIdle', shipId: 'gone', companyId: 'c' });
+    log.append(2, { type: 'ShipRemoved', shipId: 'gone', companyId: 'c' });
+    log.append(50, { type: 'ShipIdle', shipId: 'other', companyId: 'c' });
+    expect(log.forEntity('gone', 10)).toHaveLength(2);
+    log.append(200, { type: 'ShipIdle', shipId: 'other', companyId: 'c' });
+    expect(log.forEntity('gone', 10)).toEqual([]);
+    expect(log.forEntity('c', 10)).toHaveLength(4);
+    replica.ingest(log.since(0), log.count, log.hashState);
+    expect(replica.forEntity('gone', 10)).toEqual([]);
+    expect(replica.indexedEntityCount).toBe(log.indexedEntityCount);
+  });
 });
 
 describe('LogisticsWorld', () => {
