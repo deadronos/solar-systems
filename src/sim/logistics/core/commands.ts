@@ -17,23 +17,15 @@ export type Command =
   | { type: 'PurchaseShip'; classId: string; shipyardSiteId: string }
   | { type: 'SellShip'; shipId: string };
 
-/** Emergency fuel (depot dry) costs this multiple of the base fuel price. */
-export const EMERGENCY_FUEL_FACTOR = 3;
-
 /**
  * Effective fuel price for `qty` tonnes at a site: the local ask while the depot has stock,
  * otherwise emergency supply at a steep premium (keeps ships from being stranded).
  */
 export function fuelPricePerTonne(world: LogisticsWorld, site: Settlement, qty: number): number {
   const e = site.market.fuel;
-  if (site.isDeepMarket || e.stock >= qty) return askPrice(e, world.constants);
-  return (world.goods.get('fuel')?.basePrice ?? 0) * EMERGENCY_FUEL_FACTOR;
+  if (site.isDeepMarket || e.stock >= qty) return askPrice(e, world.constants.markets);
+  return (world.goods.get('fuel')?.basePrice ?? 0) * world.constants.ships.emergencyFuelFactor;
 }
-
-/** Fraction of list price recovered when selling a ship. */
-export const RESALE_FRACTION = 0.6;
-/** Penalty for abandoning or failing an accepted contract (fraction of reward). */
-export const CONTRACT_PENALTY_FRACTION = 0.1;
 
 class Rejection extends Error {
   readonly reason: string;
@@ -103,7 +95,7 @@ function arrive(world: LogisticsWorld, shipId: string): void {
   ship.stats.trips++;
   const company = world.companies.get(ship.companyId);
   if (company) {
-    const fee = world.constants.dockingFee;
+    const fee = world.constants.ships.dockingFee;
     company.cash -= fee;
     company.stats.costs += fee;
     ship.stats.costs += fee;
@@ -210,7 +202,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (cargoMass(ship) + cmd.qty > world.shipClassOf(ship).cargoT + 1e-9) reject('cargo-full');
       const e = site.market[cmd.good];
       if (e.stock < cmd.qty) reject('insufficient-stock');
-      const price = askPrice(e, c);
+      const price = askPrice(e, c.markets);
       if (price > cmd.maxPrice) reject('price-above-limit');
       spend(world, company, ship, price * cmd.qty);
       if (!site.isDeepMarket) {
@@ -235,8 +227,9 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (!(cmd.qty > 0)) reject('bad-quantity');
       if ((ship.cargo[cmd.good] ?? 0) < cmd.qty - 1e-9) reject('not-in-cargo');
       const e = site.market[cmd.good];
-      if (!site.isDeepMarket && cmd.qty > maxBuyQty(e) + 1e-9) reject('market-saturated');
-      const price = bidPrice(e, c, availableFunds(site), cmd.qty);
+      if (!site.isDeepMarket && cmd.qty > maxBuyQty(e, c.markets) + 1e-9)
+        reject('market-saturated');
+      const price = bidPrice(e, c.markets, availableFunds(site), cmd.qty);
       if (price <= 0) reject('no-demand');
       if (price < cmd.minPrice) reject('price-below-limit');
       if (!site.isDeepMarket) {
@@ -334,7 +327,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const contract = getContract(world, companyId, cmd.contractId);
       if (contract.status === 'loaded') reject('cargo-loaded');
       if (contract.status !== 'accepted') reject('not-accepted');
-      const penalty = contract.reward * CONTRACT_PENALTY_FRACTION;
+      const penalty = contract.reward * c.contracts.penaltyFraction;
       company.cash -= penalty;
       company.stats.costs += penalty;
       const ship = contract.shipId ? world.ships.get(contract.shipId) : undefined;
@@ -398,7 +391,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const site = dockedAt(world, ship);
       if (cargoMass(ship) > 0) reject('ship-has-cargo');
       if (ship.contractId) reject('ship-has-contract');
-      const value = world.shipClassOf(ship).price * RESALE_FRACTION;
+      const value = world.shipClassOf(ship).price * c.ships.resaleFraction;
       earn(company, null, value);
       world.events.append(world.jd, {
         type: 'ShipSold',

@@ -1,7 +1,6 @@
 import { TICK_DAYS } from '../core/time.ts';
 import { sortedIds, type LogisticsWorld } from '../core/world.ts';
 import { AiBrain } from './aiBrain.ts';
-import { FLEET_REVIEW_DAYS } from './timing.ts';
 import type { CompanyController, WakeReason } from './types.ts';
 import { createCompanyView } from './view.ts';
 
@@ -44,7 +43,7 @@ export function installControllers(
   world.addPhase('controllers', (w) => {
     const tick = Math.round((w.jd - w.config.startJd) / TICK_DAYS);
     const periodic = tick % Math.round(PERIODIC_DAYS / TICK_DAYS) === 0;
-    const fleet = tick % Math.round(FLEET_REVIEW_DAYS / TICK_DAYS) === 0;
+    const fleet = tick % Math.max(1, Math.round(w.constants.ai.fleetReviewDays / TICK_DAYS)) === 0;
     for (const id of sortedIds(w.companies)) {
       const company = w.companies.get(id)!;
       const controller = w.controllers.get(id);

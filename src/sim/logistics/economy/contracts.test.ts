@@ -168,7 +168,13 @@ describe('contracts', () => {
   it('a broke settlement posts nothing', () => {
     const cfg = scenario([colony({ treasury: 0 })]);
     const w = createWorld(
-      { ...cfg, constants: { ...cfg.constants, stipendPerCapitaPerDay: 0 } },
+      {
+        ...cfg,
+        constants: {
+          ...cfg.constants,
+          population: { ...cfg.constants.population, stipendPerCapitaPerDay: 0 },
+        },
+      },
       eph,
     );
     w.advanceTo(START_JD + 1);

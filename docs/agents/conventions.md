@@ -25,9 +25,9 @@ below are drawn from `src/sim/**` and `src/render/**`.
 
 - Units go in names when they aren't obvious: `radiusKm`, `periodDays`, `deltaVKmS`,
   `accelKmS2`, `upkeepPerDay`, `fuelTPerKmS`, `startJd`, `realDtSeconds`.
-- Tunables are `SCREAMING_SNAKE` module constants at the top of the file, each with a
-  one-line `/** … */` saying what it controls. Scenario-wide economy tunables live in
-  `ECONOMY_CONSTANTS` (`src/sim/logistics/data/economyConstants.ts`).
+- Scenario-wide balance settings live in the relevant section of `ECONOMY_CONSTANTS`
+  (`src/sim/logistics/data/economyConstants.ts`). Use `SCREAMING_SNAKE` for fixed module
+  constants, with a one-line `/** … */` saying what they control.
 - Doc comments explain **why** and the contract (units, frames, ownership, "live object, copy to
   keep"), not what the next line does. Mention a non-obvious trade-off in one sentence.
 - Use readable numeric separators: `86_400`, `149_597_870.7`, `1e-9`.

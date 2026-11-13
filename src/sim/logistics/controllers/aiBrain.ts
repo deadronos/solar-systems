@@ -1,3 +1,4 @@
+import { ECONOMY_CONSTANTS } from '../data/economyConstants.ts';
 import { cargoMass, type Command } from '../core/commands.ts';
 import { spareStock } from '../economy/markets.ts';
 import {
@@ -9,7 +10,6 @@ import {
 } from '../economy/types.ts';
 import { fmtMoney, fmtTonnes } from '../format.ts';
 import type { TripEstimate } from '../navigation/planner.ts';
-import { FLEET_REVIEW_DAYS } from './timing.ts';
 import type { CompanyController, CompanyView, DeepReadonly, WakeReason } from './types.ts';
 
 type Job =
@@ -28,14 +28,6 @@ interface ShipDecision {
   intent?: string;
 }
 
-/** Days before an idle ship with nothing to do looks again. */
-const IDLE_RETRY_DAYS = 5;
-/** Days before a stuck job step is retried. */
-const JOB_RETRY_DAYS = 2;
-/** Trades below this fraction of cargo capacity aren't worth a trip. */
-const MIN_LOAD_FRACTION = 0.05;
-/** Days of fleet upkeep kept as a cash reserve. */
-const RESERVE_DAYS = 30;
 /** Top raw opportunities that get a (more expensive) trip estimate. */
 const TOP_K = 6;
 
@@ -45,8 +37,9 @@ export function riskAdjustedProfit(
   cost: number,
   days: number,
   riskAversion: number,
+  horizonDays = ECONOMY_CONSTANTS.ai.riskHorizonDays,
 ): number {
-  return revenue * (1 - riskAversion * Math.min(1, days / 365)) - cost;
+  return revenue * (1 - riskAversion * Math.min(1, days / horizonDays)) - cost;
 }
 
 /**
@@ -93,7 +86,7 @@ export class AiBrain implements CompanyController {
       this.#jobs.set(ship.id, { kind: 'contract', contractId: ship.contractId });
     }
     const job = this.#jobs.get(ship.id);
-    this.#nextLook.set(ship.id, view.jd + JOB_RETRY_DAYS);
+    this.#nextLook.set(ship.id, view.jd + view.ai.jobRetryDays);
 
     if (job?.kind === 'contract') {
       const c = view.contract(job.contractId);
@@ -127,7 +120,7 @@ export class AiBrain implements CompanyController {
 
     const best = this.#choose(view, ship);
     if (!best) {
-      this.#nextLook.set(ship.id, view.jd + IDLE_RETRY_DAYS);
+      this.#nextLook.set(ship.id, view.jd + view.ai.idleRetryDays);
       decision.intent = 'Idle — no profitable work nearby';
       return;
     }
@@ -190,7 +183,7 @@ export class AiBrain implements CompanyController {
           shipId: ship.id,
           good: c.good,
           qty: need,
-          maxPrice: ask * 1.05,
+          maxPrice: ask * view.ai.buyPriceLimitFactor,
         });
         if (this.#dispatch(view, ship, c.settlementId, decision.commands)) {
           decision.intent = label;
@@ -230,13 +223,13 @@ export class AiBrain implements CompanyController {
         this.#available(view) / ask,
       ),
     );
-    if (qty < Math.max(1, cls.cargoT * MIN_LOAD_FRACTION)) return false;
+    if (qty < Math.max(1, cls.cargoT * view.ai.minLoadFraction)) return false;
     decision.commands.push({
       type: 'BuyCargo',
       shipId: ship.id,
       good: job.good,
       qty,
-      maxPrice: ask * 1.05,
+      maxPrice: ask * view.ai.buyPriceLimitFactor,
     });
     if (!this.#dispatch(view, ship, job.destId, decision.commands)) return false;
     job.qty = qty;
@@ -309,11 +302,11 @@ export class AiBrain implements CompanyController {
 
     const weightDest = (destId: string, good: GoodId) => {
       let w = 1;
-      if (p.preferredGoods?.includes(good)) w *= 1.25;
+      if (p.preferredGoods?.includes(good)) w *= view.ai.preferredGoodWeight;
       const au = view.distanceFromSunAU(destId);
-      if (p.regionBias === 'outer' && au > 2.2) w *= 1.3;
-      if (p.regionBias === 'belt' && au > 2 && au < 3.6) w *= 1.2;
-      if (p.regionBias === 'inner' && au < 1.8) w *= 1.2;
+      if (p.regionBias === 'outer' && au > 2.2) w *= view.ai.outerRegionWeight;
+      if (p.regionBias === 'belt' && au > 2 && au < 3.6) w *= view.ai.beltRegionWeight;
+      if (p.regionBias === 'inner' && au < 1.8) w *= view.ai.innerRegionWeight;
       return w;
     };
 
@@ -358,7 +351,7 @@ export class AiBrain implements CompanyController {
       if (profit <= p.minMarginPct * cost) continue;
       const score =
         (profit / Math.max(trip.days, 0.5)) *
-        (1 + 0.5 * p.contractVsTradeBias) *
+        (1 + view.ai.contractBiasScale * p.contractVsTradeBias) *
         weightDest(c.settlementId, c.good);
       cands.push({
         score,
@@ -400,16 +393,16 @@ export class AiBrain implements CompanyController {
         const ask = view.ask(source.id, g);
         if (!(ask > 0)) continue;
         const maxQty = Math.min(cls.cargoT, spare, cash / ask);
-        if (maxQty < Math.max(1, cls.cargoT * MIN_LOAD_FRACTION)) continue;
+        if (maxQty < Math.max(1, cls.cargoT * view.ai.minLoadFraction)) continue;
         for (const dest of view.settlements()) {
           if (dest.id === source.id) continue;
           const qty = Math.floor(
             Math.min(maxQty, view.demandRoom(dest.id, g) - reservedQty(dest.id, g)),
           );
-          if (qty < Math.max(1, cls.cargoT * MIN_LOAD_FRACTION)) continue;
+          if (qty < Math.max(1, cls.cargoT * view.ai.minLoadFraction)) continue;
           const bid = view.bid(dest.id, g, qty);
           if (bid <= ask * (1 + p.minMarginPct)) continue;
-          const margin = (bid - ask) * qty * (reposition ? 0.7 : 1);
+          const margin = (bid - ask) * qty * (reposition ? view.ai.repositionMarginWeight : 1);
           raw.push({ source: source.id, dest: dest.id, good: g, qty, ask, bid, margin });
         }
       }
@@ -426,11 +419,17 @@ export class AiBrain implements CompanyController {
       const trip = this.#legs(view, ship, legs);
       if (!trip) continue;
       const cost = r.ask * r.qty + trip.cost;
-      const profit = riskAdjustedProfit(r.bid * r.qty, cost, trip.days, p.riskAversion);
+      const profit = riskAdjustedProfit(
+        r.bid * r.qty,
+        cost,
+        trip.days,
+        p.riskAversion,
+        view.ai.riskHorizonDays,
+      );
       if (profit <= p.minMarginPct * cost) continue;
       const score =
         (profit / Math.max(trip.days, 0.5)) *
-        (1 - 0.5 * p.contractVsTradeBias) *
+        (1 - view.ai.contractBiasScale * p.contractVsTradeBias) *
         weightDest(r.dest, r.good);
       const srcName = view.settlement(r.source)?.name;
       const dstName = view.settlement(r.dest)?.name;
@@ -502,7 +501,7 @@ export class AiBrain implements CompanyController {
 
   #spare(view: CompanyView, siteId: string, good: GoodId): number {
     const s = view.settlement(siteId);
-    return s ? spareStock(s, good) : 0;
+    return s ? spareStock(s, good, view.sourceReserveFraction) : 0;
   }
 
   /** Source minimising goods cost + travel cost for this ship (then on to `dest`). */
@@ -530,7 +529,7 @@ export class AiBrain implements CompanyController {
 
   #available(view: CompanyView): number {
     const upkeep = view.ships().reduce((a, s) => a + view.shipClass(s.classId).upkeepPerDay, 0);
-    return view.company.cash - upkeep * RESERVE_DAYS;
+    return view.company.cash - upkeep * view.ai.reserveDays;
   }
 
   // ── Fleet management ───────────────────────────────────────────────────────
@@ -539,7 +538,7 @@ export class AiBrain implements CompanyController {
     const p = view.personality;
     const since = this.#lastFleetReview ?? view.company.foundedJd;
     const elapsed = Math.max(1, view.jd - since);
-    if (elapsed < FLEET_REVIEW_DAYS * 0.9 && this.#lastFleetReview !== null) return;
+    if (elapsed < view.ai.fleetReviewDays * 0.9 && this.#lastFleetReview !== null) return;
     this.#lastFleetReview = view.jd;
     const ships = view.ships().filter((s) => s.state !== 'building');
     let busy = 0;
@@ -557,7 +556,12 @@ export class AiBrain implements CompanyController {
       return;
     }
     const distressed = view.company.status === 'distress';
-    if ((distressed || (cash < 0.1 * p.expansionCashThreshold && util < 0.4)) && ships.length > 1) {
+    if (
+      (distressed ||
+        (cash < view.ai.lowCashThresholdFraction * p.expansionCashThreshold &&
+          util < view.ai.lowUtilisationThreshold)) &&
+      ships.length > 1
+    ) {
       const sellable = ships
         .filter(
           (s) =>
@@ -574,7 +578,9 @@ export class AiBrain implements CompanyController {
 
   #pickClass(view: CompanyView, cash: number): ShipClass | null {
     const p = view.personality;
-    const affordable = view.shipClasses().filter((c) => c.price <= cash * 0.5);
+    const affordable = view
+      .shipClasses()
+      .filter((c) => c.price <= cash * view.ai.shipPurchaseCashFraction);
     const preferred = affordable.filter((c) => p.preferredTiers.includes(c.tier));
     const pool = preferred.length > 0 ? preferred : affordable;
     return pool.toSorted((a, b) => b.price - a.price || a.id.localeCompare(b.id))[0] ?? null;

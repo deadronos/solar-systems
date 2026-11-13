@@ -215,25 +215,84 @@ export interface Contract {
 }
 
 export interface EconomyConstants {
-  elasticity: number;
-  priceClampMin: number;
-  priceClampMax: number;
-  spread: number;
-  bufferDays: number;
-  satisfactionEmaDays: number;
-  emigrationThreshold: number;
-  maxGrowthPerYear: number;
-  maxEmigrationPerYear: number;
-  workforceFraction: number;
-  stipendPerCapitaPerDay: number;
-  dockingFee: number;
-  bankruptcyGraceDays: number;
-  entrantDelayDays: number;
-  entrantSeedCash: number;
-  contractPremium: number;
-  needsPerCapitaPerDay: Record<NeedTier, Partial<Record<GoodId, number>>>;
-  housingBatch: { inputs: RecipeLine[]; capacityGainFraction: number; occupancyTrigger: number };
-  deepMarketStock: number;
+  markets: {
+    elasticity: number;
+    priceClampMin: number;
+    priceClampMax: number;
+    spread: number;
+    bufferDays: number;
+    deepMarketStock: number;
+    maxStockMultiple: number;
+    producerBufferDays: number;
+  };
+  population: {
+    satisfactionEmaDays: number;
+    emigrationThreshold: number;
+    maxGrowthPerYear: number;
+    maxEmigrationPerYear: number;
+    workforceFraction: number;
+    stipendPerCapitaPerDay: number;
+    initialReserveDays: number;
+    housingDemandDays: number;
+    baselineGrowthWeight: number;
+    basicGrowthWeight: number;
+    comfortGrowthWeight: number;
+    needsPerCapitaPerDay: Record<NeedTier, Partial<Record<GoodId, number>>>;
+    housingBatch: { inputs: RecipeLine[]; capacityGainFraction: number; occupancyTrigger: number };
+  };
+  contracts: {
+    contractPremium: number;
+    postThreshold: number;
+    maxTreasuryFraction: number;
+    minDeadlineDays: number;
+    deadlineTripMultiple: number;
+    escalationStep: number;
+    escalationCap: number;
+    freightFeeMarkup: number;
+    minHaulCost: number;
+    sourceReserveFraction: number;
+    maxContractQtyT: number;
+    defaultLeadDays: number;
+    shortagePremiumFactor: number;
+    nonSurvivalTreasuryFraction: number;
+    survivalTreasuryReserveDays: number;
+    penaltyFraction: number;
+  };
+  ships: {
+    dockingFee: number;
+    emergencyFuelFactor: number;
+    resaleFraction: number;
+  };
+  companies: {
+    bankruptcyGraceDays: number;
+    entrantDelayDays: number;
+    entrantSeedCash: number;
+  };
+  ai: {
+    idleRetryDays: number;
+    jobRetryDays: number;
+    minLoadFraction: number;
+    reserveDays: number;
+    fleetReviewDays: number;
+    riskHorizonDays: number;
+    buyPriceLimitFactor: number;
+    preferredGoodWeight: number;
+    outerRegionWeight: number;
+    beltRegionWeight: number;
+    innerRegionWeight: number;
+    contractBiasScale: number;
+    repositionMarginWeight: number;
+    lowCashThresholdFraction: number;
+    lowUtilisationThreshold: number;
+    shipPurchaseCashFraction: number;
+  };
+  nav: {
+    surfaceLegDays: number;
+    sameBodyDays: number;
+    surfaceDvFactor: number;
+    lowOrbitFactor: number;
+    transferDaysPerKmS: number;
+  };
 }
 
 export interface ScenarioConfig {

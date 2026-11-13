@@ -1,4 +1,4 @@
-import { RESALE_FRACTION, removeShip } from '../core/commands.ts';
+import { removeShip } from '../core/commands.ts';
 import { sortedIds, type LogisticsWorld } from '../core/world.ts';
 import { release } from './treasury.ts';
 import type { Company, ShipClass } from './types.ts';
@@ -34,7 +34,7 @@ export function netWorth(world: LogisticsWorld, companyId: string): number {
   for (const id of company.shipIds) {
     const ship = world.ships.get(id);
     if (!ship) continue;
-    v += world.shipClassOf(ship).price * RESALE_FRACTION;
+    v += world.shipClassOf(ship).price * world.constants.ships.resaleFraction;
     for (const [g, q] of Object.entries(ship.cargo)) {
       v += (q ?? 0) * (world.goods.get(g as keyof typeof ship.cargo)?.basePrice ?? 0);
     }
@@ -81,7 +81,7 @@ function bankrupt(world: LogisticsWorld, company: Company): void {
       removeShip(world, ship);
     }
   }
-  world.schedule(world.jd + world.constants.entrantDelayDays, (w) => spawnEntrant(w));
+  world.schedule(world.jd + world.constants.companies.entrantDelayDays, (w) => spawnEntrant(w));
 }
 
 /** A new company enters the market with seed capital and one ship at a shipyard. */
@@ -98,7 +98,7 @@ export function spawnEntrant(world: LogisticsWorld): Company {
     name,
     color: ENTRANT_COLORS[world.companies.size % ENTRANT_COLORS.length]!,
     personalityId: personality.id,
-    cash: world.constants.entrantSeedCash,
+    cash: world.constants.companies.entrantSeedCash,
     shipIds: [],
     status: 'active',
     distressSinceJd: null,
@@ -152,7 +152,7 @@ export function runCompanies(world: LogisticsWorld): void {
         });
       } else if (
         world.jd - (company.distressSinceJd ?? world.jd) >=
-        world.constants.bankruptcyGraceDays
+        world.constants.companies.bankruptcyGraceDays
       ) {
         bankrupt(world, company);
       }

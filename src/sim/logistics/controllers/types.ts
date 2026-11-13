@@ -2,6 +2,7 @@ import type { Command } from '../core/commands.ts';
 import type {
   Company,
   Contract,
+  EconomyConstants,
   GoodId,
   MarketEntry,
   Personality,
@@ -23,6 +24,8 @@ export type DeepReadonly<T> = { readonly [K in keyof T]: DeepReadonly<T[K]> };
 export interface CompanyView {
   readonly jd: number;
   readonly dockingFee: number;
+  readonly ai: Readonly<EconomyConstants['ai']>;
+  readonly sourceReserveFraction: number;
   readonly company: DeepReadonly<Company>;
   readonly personality: DeepReadonly<Personality>;
   ships(): readonly DeepReadonly<Ship>[];

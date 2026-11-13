@@ -39,7 +39,9 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
 
   return {
     jd: world.jd,
-    dockingFee: c.dockingFee,
+    dockingFee: c.ships.dockingFee,
+    ai: Object.freeze({ ...c.ai }),
+    sourceReserveFraction: c.contracts.sourceReserveFraction,
     company: snapshot(company),
     personality: snapshot(personality),
     ships: () =>
@@ -67,14 +69,14 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
     },
     shipClasses: () => Object.freeze([...world.shipClasses.values()].map(snapshot)),
     market: (sid, good: GoodId) => snapshot(site(sid).market[good]),
-    ask: (sid, good) => askPrice(site(sid).market[good], c),
+    ask: (sid, good) => askPrice(site(sid).market[good], c.markets),
     bid: (sid, good, qty) => {
       const s = site(sid);
-      return bidPrice(s.market[good], c, availableFunds(s), qty);
+      return bidPrice(s.market[good], c.markets, availableFunds(s), qty);
     },
     demandRoom: (sid, good) => {
       const s = site(sid);
-      return s.isDeepMarket ? Number.POSITIVE_INFINITY : maxBuyQty(s.market[good]);
+      return s.isDeepMarket ? Number.POSITIVE_INFINITY : maxBuyQty(s.market[good], c.markets);
     },
     estimateTrip: (shipId, fromId, toId) => {
       const ship = world.ships.get(shipId);

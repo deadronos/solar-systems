@@ -4,7 +4,7 @@ How companies make decisions: the controller interface, the company view, wake-u
 batches and the default AI. Read this before changing `src/sim/logistics/controllers/*`,
 adding a command, or building a player or alternative controller.
 
-**Source of truth:** `src/sim/logistics/controllers/{types,view,runner,aiBrain,timing}.ts`,
+**Source of truth:** `src/sim/logistics/controllers/{types,view,runner,aiBrain}.ts`,
 `src/sim/logistics/core/commands.ts` (`Command`, `applyCommands`).
 
 ## The seam
@@ -19,12 +19,13 @@ interface CompanyController {
   company an `AiBrain`. New entrants get one when `CompanyFounded` fires. Swap one with
   `world.setController(id, controller)`.
 - **Wake-ups:** `ShipIdle`, `ShipDelivered` and `ShipArrived` events queue reasons per company.
-  Every company also gets `periodic` (daily) and `fleetReview` (every 30 days). Companies decide
+  Every company also gets `periodic` (daily) and `fleetReview` (every `ai.fleetReviewDays`, 30 days by default). Companies decide
   once per tick, in sorted id order, during the `controllers` phase (the last one).
   To add a wake reason, add it to `WakeReason` _and_ emit it in `installControllers`.
 - **`CompanyView`** (`createCompanyView`) is a company-scoped window: own ships, settlements,
   open contracts, market quotes (`ask`, `bid`, `demandRoom`), trip estimates, fuel prices and
-  the scenario docking fee.
+  the scenario docking fee. The view also exposes a read-only copy of the scenario AI policy
+  and the source stock reserve fraction shared with contract posting.
   Quotes use the same functions as command validation, so a decision made on the view matches
   what the command will see. Same tick, same state.
 - The view exposes deeply read-only, frozen copies of world data, including market entries
@@ -65,7 +66,7 @@ To add a command: add a union member to `Command`, a `case` in `apply()` that va
 - The AI builds intent labels lazily for the chosen plan. It emits the final label once,
   before the ship's action commands, so the label can explain the plan even if an action
   is rejected.
-- **Fleet review** (every 30 days):
+- **Fleet review**:
   - Buys a ship when cash is above `expansionCashThreshold` and utilisation is at least
     `targetUtilisation`.
   - Sells the worst idle ship when in distress or when idle and poor.

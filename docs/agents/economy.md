@@ -19,8 +19,25 @@ clone. Ids are deterministic (`world.nextId('ship')` → `ship-12`).
 
 The scenario (`data/scenario.ts` → `DEFAULT_SCENARIO`) is pure data: 2040 start, 14 goods,
 recipes, 9 settlements (Earth Exchange is the **deep market**: infinite treasury and fixed
-prices), 8 ship classes across 5 engine tiers, personalities and starting companies. Tunables are in
-`ECONOMY_CONSTANTS`; others are still module constants (#30).
+prices), 8 ship classes across 5 engine tiers, personalities and starting companies.
+
+Scenario balance settings live in `ScenarioConfig.constants`, grouped into `markets`,
+`population`, `contracts`, `ships`, `companies`, `ai` and `nav`. Defaults are defined in
+`data/economyConstants.ts`. To sweep a setting, copy the scenario, its `constants` object, and
+the section being changed. For example, a scenario with a lower contract size cap uses:
+
+```ts
+const scenario = {
+  ...DEFAULT_SCENARIO,
+  constants: {
+    ...DEFAULT_SCENARIO.constants,
+    contracts: { ...DEFAULT_SCENARIO.constants.contracts, maxContractQtyT: 200 },
+  },
+};
+```
+
+Both economy backends read the same plain-data config. The tick cadence, contract
+pruning, numerical tolerances and cache limits remain implementation constants.
 
 ## Tick loop (never change the order casually)
 
@@ -68,10 +85,10 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
 
 - **Market entry per good:** `stock`, `targetStock`, `price`, EMA `consumptionPerDay` and
   `productionPerDay`.
-  - `priceFor` = base × (stock/target)^−elasticity, clamped to [0.25, 4]× base.
+  - `priceFor` = base × (stock/target)^−elasticity, clamped to [0.25, 4]× base by default.
   - Settlements sell at `askPrice` (+spread/2) and buy at `bidPrice` (−spread/2). They buy
     only if they consume the good and can pay from **available funds**, and only up to
-    3× target stock.
+    `markets.maxStockMultiple` × target stock (3× by default).
 - **Production** (`production.ts`): life-support recipes get workers and inputs first.
   Output is limited by capacity, workers and input stock. Nominal input demand is recorded
   even when inputs are missing, so shortages show up as prices.
@@ -83,15 +100,15 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
 
 ## Contracts (orders) and settlement money
 
-`generateContracts` runs daily. For each good a colony is short of (projected stock +
-inbound below half the desired level):
+`generateContracts` runs daily. An order can be posted when projected stock plus inbound
+falls below `contracts.postThreshold` times the desired level (half by default):
 
 - **Local shuttle**: a same-body neighbour (e.g. Gateway ↔ Earth Exchange) sells directly. No
   ship is needed, and payment is immediate.
 - **Freight**: goods are _reserved_ at the cheapest source (stock removed). The buyer pays the
   escrow to the source **at loading** and pays the carrier's fee on delivery.
 - **Delivery**: the carrier sources the goods anywhere; the buyer pays the reward on delivery.
-- Unfilled orders expire and are reposted with fees raised by 1.5× per expiry (capped at 8×).
+- Unfilled orders expire and are reposted with fees raised by 1.5× per expiry (capped at 8× by default).
   Accepted contracts that expire penalise the carrier, and loaded freight stays deliverable
   ("late").
 
@@ -103,9 +120,9 @@ test enforces `treasury ≥ 0` and `committed == Σ outstanding`.
 
 ## Companies
 
-`companies.ts`: cash below 0 → `distress`. Still below 0 after `bankruptcyGraceDays` →
+`companies.ts`: cash below 0 → `distress`. Still below 0 after `companies.bankruptcyGraceDays` →
 `bankrupt`: accepted contracts reopen, loaded freight is lost and the buyer refunded, and
-ships are removed (in-flight ones on arrival). A new entrant spawns `entrantDelayDays`
+ships are removed (in-flight ones on arrival). A new entrant spawns `companies.entrantDelayDays`
 later. Ship upkeep, docking fees and penalties are paid to no one; they are money sinks (#11).
 
 ## Known gaps (documented, not drift)

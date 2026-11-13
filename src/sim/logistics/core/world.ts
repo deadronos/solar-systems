@@ -130,7 +130,7 @@ export class LogisticsWorld {
 
   /** Navigation context (lazily created; caches launch-window grids). */
   get nav(): NavContext {
-    return (this.#nav ??= new NavContext(this.ephemeris));
+    return (this.#nav ??= new NavContext(this.ephemeris, this.constants.nav));
   }
 
   setController(companyId: string, controller: CompanyController): void {
@@ -197,9 +197,6 @@ export class LogisticsWorld {
   }
 }
 
-/** Days of survival supplies every settlement starts with (at least). */
-const INITIAL_RESERVE_DAYS = 365;
-
 /** Sorted keys for deterministic iteration. */
 export const sortedIds = <T>(map: ReadonlyMap<string, T>): string[] => [...map.keys()].toSorted();
 
@@ -209,10 +206,13 @@ function createSettlement(def: SettlementDef, world: LogisticsWorld): Settlement
     const base = world.goods.get(g)?.basePrice ?? 0;
     const factor = def.deepPriceFactors?.[g] ?? 1;
     // Every settlement starts with at least a year of survival supplies.
-    const survivalNeed = world.config.constants.needsPerCapitaPerDay.survival[g] ?? 0;
+    const survivalNeed = world.constants.population.needsPerCapitaPerDay.survival[g] ?? 0;
     const stock = def.isDeepMarket
-      ? world.config.constants.deepMarketStock
-      : Math.max(def.initialStock[g] ?? 0, def.population * survivalNeed * INITIAL_RESERVE_DAYS);
+      ? world.constants.markets.deepMarketStock
+      : Math.max(
+          def.initialStock[g] ?? 0,
+          def.population * survivalNeed * world.constants.population.initialReserveDays,
+        );
     market[g] = {
       stock,
       targetStock: stock,

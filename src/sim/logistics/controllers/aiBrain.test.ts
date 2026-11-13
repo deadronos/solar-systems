@@ -56,11 +56,17 @@ describe('AiBrain', () => {
   it('skips a profitable trade when the scenario docking fee exceeds its margin', () => {
     const base = scenario([company()]);
     const withFee = (dockingFee: number) => {
-      const world = createWorld({ ...base, constants: { ...base.constants, dockingFee } }, eph);
+      const world = createWorld(
+        {
+          ...base,
+          constants: { ...base.constants, ships: { ...base.constants.ships, dockingFee } },
+        },
+        eph,
+      );
       return new AiBrain().decide(createCompanyView(world, 'ai'), [{ kind: 'periodic' }]);
     };
 
-    expect(withFee(base.constants.dockingFee)).toContainEqual(
+    expect(withFee(base.constants.ships.dockingFee)).toContainEqual(
       expect.objectContaining({ type: 'BuyCargo', good: 'electronics' }),
     );
     expect(withFee(2_000_000_000)).not.toContainEqual(
