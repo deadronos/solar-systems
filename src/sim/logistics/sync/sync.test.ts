@@ -88,6 +88,7 @@ describe('economy worker', () => {
       });
       reference.advanceTo(replica.jd);
       expect(view(replica)).toBe(view(reference));
+      expect(replica.events.recent(1, (e) => e.type === 'ShipIntentChanged')).toHaveLength(1);
     },
   );
 

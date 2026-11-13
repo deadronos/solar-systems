@@ -5,7 +5,7 @@ import type { LogisticsWorld } from '../core/world.ts';
 import { askPrice, bidPrice, maxBuyQty } from '../economy/markets.ts';
 import { availableFunds } from '../economy/treasury.ts';
 import type { GoodId } from '../economy/types.ts';
-import type { CompanyView } from './types.ts';
+import type { CompanyView, DeepReadonly } from './types.ts';
 
 const scratch = vec3();
 
@@ -15,6 +15,19 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
   const personality = world.personalities.get(company.personalityId);
   if (!personality) throw new Error(`Unknown personality "${company.personalityId}"`);
   const c = world.constants;
+  const snapshots = new WeakMap<object, object>();
+  // Copy only values the controller reads and reuse nested copies across view queries.
+  const snapshot = <T>(value: T): DeepReadonly<T> => {
+    if (typeof value !== 'object' || value === null) return value as DeepReadonly<T>;
+    const cached = snapshots.get(value);
+    if (cached) return cached as DeepReadonly<T>;
+    const copy = Array.isArray(value)
+      ? value.map(snapshot)
+      : Object.fromEntries(Object.entries(value).map(([key, child]) => [key, snapshot(child)]));
+    const frozen = Object.freeze(copy);
+    snapshots.set(value, frozen);
+    return frozen as DeepReadonly<T>;
+  };
   const site = (id: string) => {
     const s = world.settlements.get(id);
     if (!s) throw new Error(`Unknown settlement "${id}"`);
@@ -27,24 +40,33 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
   return {
     jd: world.jd,
     dockingFee: c.dockingFee,
-    company,
-    personality,
-    ships: () => company.shipIds.map((id) => world.ships.get(id)!).filter(Boolean),
-    settlements: () => settlementsSorted,
-    settlement: (id) => world.settlements.get(id),
+    company: snapshot(company),
+    personality: snapshot(personality),
+    ships: () =>
+      Object.freeze(
+        company.shipIds.flatMap((id) => {
+          const ship = world.ships.get(id);
+          return ship ? [snapshot(ship)] : [];
+        }),
+      ),
+    settlements: () => snapshot(settlementsSorted),
+    settlement: (id) => snapshot(world.settlements.get(id)),
     openContracts: () =>
-      [...world.contracts.keys()]
-        .toSorted()
-        .map((id) => world.contracts.get(id)!)
-        .filter((x) => x.status === 'open'),
-    contract: (id) => world.contracts.get(id),
+      Object.freeze(
+        [...world.contracts.keys()]
+          .toSorted()
+          .map((id) => world.contracts.get(id)!)
+          .filter((x) => x.status === 'open')
+          .map(snapshot),
+      ),
+    contract: (id) => snapshot(world.contracts.get(id)),
     shipClass: (id) => {
       const cls = world.shipClasses.get(id);
       if (!cls) throw new Error(`Unknown class "${id}"`);
-      return cls;
+      return snapshot(cls);
     },
-    shipClasses: () => [...world.shipClasses.values()],
-    market: (sid, good: GoodId) => site(sid).market[good],
+    shipClasses: () => Object.freeze([...world.shipClasses.values()].map(snapshot)),
+    market: (sid, good: GoodId) => snapshot(site(sid).market[good]),
     ask: (sid, good) => askPrice(site(sid).market[good], c),
     bid: (sid, good, qty) => {
       const s = site(sid);
@@ -57,14 +79,12 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
     estimateTrip: (shipId, fromId, toId) => {
       const ship = world.ships.get(shipId);
       if (!ship || ship.companyId !== companyId) return null;
-      return world.nav.estimateCached(world.shipClassOf(ship), site(fromId), site(toId), world.jd);
+      return snapshot(
+        world.nav.estimateCached(world.shipClassOf(ship), site(fromId), site(toId), world.jd),
+      );
     },
     fuelPrice: (sid, qty) => fuelPricePerTonne(world, site(sid), qty),
     distanceFromSunAU: (sid) =>
       length(world.ephemeris.positionAt(site(sid).site.bodyId, world.jd, scratch)) / AU_KM,
-    setIntent: (shipId, text) => {
-      const ship = world.ships.get(shipId);
-      if (ship && ship.companyId === companyId) ship.intent = text;
-    },
   };
 }

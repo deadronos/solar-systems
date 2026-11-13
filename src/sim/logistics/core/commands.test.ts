@@ -30,6 +30,24 @@ const rejections = (w: ReturnType<typeof createWorld>) =>
     .map((e) => (e.type === 'CommandRejected' ? e.reason : ''));
 
 describe('commands', () => {
+  it('changes intent only for an owned ship and emits an event once per change', () => {
+    const config = scenario('torch-courier', 'earth-exchange');
+    config.companies.push({ ...config.companies[0]!, id: 'other', ships: [] });
+    const w = createWorld(config, eph);
+    const ship = [...w.ships.values()][0]!;
+    const before = ship.intent;
+    const cmd = { type: 'SetIntent', shipId: ship.id, text: 'Picking up cargo' } as const;
+
+    expect(w.issue('other', [cmd])).toEqual([false]);
+    expect(ship.intent).toBe(before);
+    expect(rejections(w)).toEqual(['not-owner']);
+    expect(w.issue('t', [cmd, cmd])).toEqual([true, true]);
+    expect(ship.intent).toBe(cmd.text);
+    expect(w.events.recent(10, (e) => e.type === 'ShipIntentChanged')).toMatchObject([
+      { shipId: ship.id, companyId: 't', text: cmd.text },
+    ]);
+  });
+
   it("skips a ship's later commands once one is rejected (no empty departures)", () => {
     const w = createWorld(scenario('torch-courier', 'mars-colony'), eph);
     const ship = [...w.ships.values()][0]!;

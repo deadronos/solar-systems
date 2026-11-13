@@ -62,6 +62,7 @@ export type EventPayload =
       arriveJd?: number;
     }
   | { type: 'ShipArrived'; shipId: string; companyId: string; settlementId: string }
+  | { type: 'ShipIntentChanged'; shipId: string; companyId: string; text: string }
   | { type: 'ShipIdle'; shipId: string; companyId: string; settlementId?: string }
   | {
       type: 'CargoBought';

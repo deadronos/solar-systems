@@ -31,6 +31,7 @@ const GROUPS: Record<Exclude<Group, 'all'>, EventType[]> = {
 const HIDDEN = new Set<EventType>([
   'PriceChanged',
   'ShipIdle',
+  'ShipIntentChanged',
   'FuelPurchased',
   'CommandRejected',
   'ShipDeparted',

@@ -22,6 +22,8 @@ export function describeEvent(e: LogisticsEvent, name: (id: string) => string): 
       return `${name(e.shipId)} departed${e.fromSiteId ? ` ${name(e.fromSiteId)}` : ''} for ${name(e.toSiteId)}`;
     case 'ShipArrived':
       return `${name(e.shipId)} arrived at ${name(e.settlementId)}`;
+    case 'ShipIntentChanged':
+      return `${name(e.shipId)} — ${e.text}`;
     case 'ShipIdle':
       return `${name(e.shipId)} is idle${e.settlementId ? ` at ${name(e.settlementId)}` : ''}`;
     case 'FuelPurchased':

@@ -68,6 +68,22 @@ describe('AiBrain', () => {
     );
   });
 
+  it('returns the intent in the command batch without mutating the ship during decide', () => {
+    const w = createWorld(scenario([company()]), eph);
+    const ship = [...w.ships.values()][0]!;
+    const before = ship.intent;
+    const commands = new AiBrain().decide(createCompanyView(w, 'ai'), [
+      { kind: 'shipIdle', shipId: ship.id },
+    ]);
+
+    expect(ship.intent).toBe(before);
+    expect(commands.filter((cmd) => cmd.type === 'SetIntent')).toEqual([
+      { type: 'SetIntent', shipId: ship.id, text: expect.stringMatching(/electronics/) },
+    ]);
+    w.issue('ai', commands);
+    expect(ship.intent).toMatch(/electronics/);
+  });
+
   it('does not send two of its own ships after the same contract', () => {
     const w = createWorld(
       scenario([

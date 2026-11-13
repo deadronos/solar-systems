@@ -27,9 +27,12 @@ interface CompanyController {
   the scenario docking fee.
   Quotes use the same functions as command validation, so a decision made on the view matches
   what the command will see. Same tick, same state.
-- The view's objects are **typed `Readonly` but are the live world objects**. Never mutate them.
-  The one sanctioned side channel is `view.setIntent(shipId, text)`, the human-readable
-  "what is this ship doing" line shown in the UI (#31 tracks tightening this).
+- The view exposes deeply read-only, frozen copies of world data, including market entries
+  and cached trip estimates. Copies are made on first access and reused within a decision.
+  Create a new view for each decision so its queries and quotes use current world state.
+- Controllers update the ship's human-readable intent with `SetIntent`. The command checks
+  ownership and emits `ShipIntentChanged` only when the text changes. The worker sends the
+  updated intent as part of its regular ship data.
 
 ## Command batches
 
@@ -59,8 +62,9 @@ To add a command: add a union member to `Command`, a `case` in `apply()` that va
     a real trip estimate.
   - The score is profit per day, weighted by the company's personality (`contractVsTradeBias`,
     `riskAversion`, `regionBias`, `preferredGoods`, `minMarginPct`).
-- Every decision sets the ship's intent. Labels are built lazily (only for the chosen
-  candidate) because formatting every option was measurable.
+- The AI builds intent labels lazily for the chosen plan. It emits the final label once,
+  before the ship's action commands, so the label can explain the plan even if an action
+  is rejected.
 - **Fleet review** (every 30 days):
   - Buys a ship when cash is above `expansionCashThreshold` and utilisation is at least
     `targetUtilisation`.

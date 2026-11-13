@@ -6,6 +6,7 @@ import type { LogisticsWorld } from './world.ts';
 
 /** Everything a controller (AI or player) can ask the world to do. */
 export type Command =
+  | { type: 'SetIntent'; shipId: string; text: string }
   | { type: 'PlanAndDispatch'; shipId: string; toSiteId: string }
   | { type: 'BuyCargo'; shipId: string; good: GoodId; qty: number; maxPrice: number }
   | { type: 'SellCargo'; shipId: string; good: GoodId; qty: number; minPrice: number }
@@ -150,6 +151,19 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
   const c = world.constants;
 
   switch (cmd.type) {
+    case 'SetIntent': {
+      const ship = getShip(world, companyId, cmd.shipId);
+      if (typeof cmd.text !== 'string') reject('invalid-intent');
+      if (ship.intent === cmd.text) return;
+      ship.intent = cmd.text;
+      world.events.append(world.jd, {
+        type: 'ShipIntentChanged',
+        shipId: ship.id,
+        companyId,
+        text: cmd.text,
+      });
+      return;
+    }
     case 'PlanAndDispatch': {
       const ship = getShip(world, companyId, cmd.shipId);
       const from = dockedAt(world, ship);

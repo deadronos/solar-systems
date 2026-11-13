@@ -10,7 +10,7 @@ import {
 import { fmtMoney, fmtTonnes } from '../format.ts';
 import type { TripEstimate } from '../navigation/planner.ts';
 import { FLEET_REVIEW_DAYS } from './timing.ts';
-import type { CompanyController, CompanyView, WakeReason } from './types.ts';
+import type { CompanyController, CompanyView, DeepReadonly, WakeReason } from './types.ts';
 
 type Job =
   | { kind: 'trade'; good: GoodId; qty: number; sourceId: string; destId: string; buyPrice: number }
@@ -20,7 +20,12 @@ interface Candidate {
   score: number;
   /** Built only for the chosen candidate (formatting every option was measurable). */
   label: () => string;
-  execute: () => Command[];
+  execute: (decision: ShipDecision) => void;
+}
+
+interface ShipDecision {
+  commands: Command[];
+  intent?: string;
 }
 
 /** Days before an idle ship with nothing to do looks again. */
@@ -68,7 +73,12 @@ export class AiBrain implements CompanyController {
     for (const ship of view.ships().toSorted((a, b) => a.id.localeCompare(b.id))) {
       if (ship.state !== 'docked' || !ship.siteId || ship.pendingRemoval) continue;
       if (!forced.has(ship.id) && (this.#nextLook.get(ship.id) ?? 0) > view.jd) continue;
-      this.#step(view, ship, cmds);
+      const decision: ShipDecision = { commands: [] };
+      this.#step(view, ship, decision);
+      if (decision.intent !== undefined) {
+        cmds.push({ type: 'SetIntent', shipId: ship.id, text: decision.intent });
+      }
+      cmds.push(...decision.commands);
     }
     if (wake.some((w) => w.kind === 'fleetReview')) this.#fleet(view, cmds);
     return cmds;
@@ -76,7 +86,7 @@ export class AiBrain implements CompanyController {
 
   // ── Per-ship state machine ─────────────────────────────────────────────────
 
-  #step(view: CompanyView, ship: Readonly<Ship>, cmds: Command[]): void {
+  #step(view: CompanyView, ship: DeepReadonly<Ship>, decision: ShipDecision): void {
     const here = ship.siteId!;
     // The world is the truth: a contract held by the ship is its job even if memory lost it.
     if (ship.contractId && this.#jobs.get(ship.id)?.kind !== 'contract') {
@@ -88,7 +98,7 @@ export class AiBrain implements CompanyController {
     if (job?.kind === 'contract') {
       const c = view.contract(job.contractId);
       if (c && (c.status === 'accepted' || c.status === 'loaded') && c.shipId === ship.id) {
-        this.#contractStep(view, ship, c, cmds);
+        this.#contractStep(view, ship, c, decision);
         return;
       }
       this.#jobs.delete(ship.id);
@@ -97,14 +107,11 @@ export class AiBrain implements CompanyController {
     if (job?.kind === 'trade') {
       const held = ship.cargo[job.good] ?? 0;
       if (here === job.sourceId && held <= 0) {
-        if (this.#buyAndGo(view, ship, job, cmds)) return;
+        if (this.#buyAndGo(view, ship, job, decision)) return;
         this.#jobs.delete(ship.id);
       } else if (here !== job.destId && held > 0) {
-        if (this.#dispatch(view, ship, job.destId, cmds)) {
-          view.setIntent(
-            ship.id,
-            `Hauling ${fmtTonnes(held)} ${job.good} → ${view.settlement(job.destId)?.name}`,
-          );
+        if (this.#dispatch(view, ship, job.destId, decision.commands)) {
+          decision.intent = `Hauling ${fmtTonnes(held)} ${job.good} → ${view.settlement(job.destId)?.name}`;
           return;
         }
         this.#jobs.delete(ship.id);
@@ -115,24 +122,24 @@ export class AiBrain implements CompanyController {
 
     // Unassigned cargo: sell here, otherwise take it to the best buyer.
     if (cargoMass(ship) > 0 && !ship.contractId) {
-      if (this.#sellOrRoute(view, ship, cmds)) return;
+      if (this.#sellOrRoute(view, ship, decision)) return;
     }
 
     const best = this.#choose(view, ship);
     if (!best) {
       this.#nextLook.set(ship.id, view.jd + IDLE_RETRY_DAYS);
-      view.setIntent(ship.id, 'Idle — no profitable work nearby');
+      decision.intent = 'Idle — no profitable work nearby';
       return;
     }
-    view.setIntent(ship.id, best.label());
-    cmds.push(...best.execute());
+    decision.intent = best.label();
+    best.execute(decision);
   }
 
   #contractStep(
     view: CompanyView,
-    ship: Readonly<Ship>,
-    c: Readonly<Contract>,
-    cmds: Command[],
+    ship: DeepReadonly<Ship>,
+    c: DeepReadonly<Contract>,
+    decision: ShipDecision,
   ): void {
     const here = ship.siteId!;
     const dest = view.settlement(c.settlementId)!;
@@ -140,76 +147,77 @@ export class AiBrain implements CompanyController {
     const label = `Contract: ${fmtTonnes(c.qty)} ${c.good} → ${dest.name} for ${fmtMoney(c.reward)}`;
     if (held >= c.qty - 1e-9) {
       if (here === c.settlementId) {
-        cmds.push({ type: 'DeliverContract', contractId: c.id });
+        decision.commands.push({ type: 'DeliverContract', contractId: c.id });
         this.#jobs.delete(ship.id);
-        view.setIntent(ship.id, `Delivered ${c.good} to ${dest.name}`);
+        decision.intent = `Delivered ${c.good} to ${dest.name}`;
         this.#nextLook.set(ship.id, view.jd);
-      } else if (this.#dispatch(view, ship, c.settlementId, cmds)) {
-        view.setIntent(ship.id, label);
+      } else if (this.#dispatch(view, ship, c.settlementId, decision.commands)) {
+        decision.intent = label;
       } else {
-        this.#giveUp(view, ship, c, cmds);
+        this.#giveUp(ship, c, decision);
       }
       return;
     }
     if (c.kind === 'freight') {
       if (here === c.pickupSettlementId) {
         if (cargoMass(ship) + c.qty > view.shipClass(ship.classId).cargoT) {
-          this.#giveUp(view, ship, c, cmds);
+          this.#giveUp(ship, c, decision);
           return;
         }
-        cmds.push({ type: 'LoadContractCargo', contractId: c.id });
-        if (this.#dispatch(view, ship, c.settlementId, cmds)) view.setIntent(ship.id, label);
-      } else if (c.pickupSettlementId && this.#dispatch(view, ship, c.pickupSettlementId, cmds)) {
-        view.setIntent(
-          ship.id,
-          `${label} (to pickup at ${view.settlement(c.pickupSettlementId)?.name})`,
-        );
+        decision.commands.push({ type: 'LoadContractCargo', contractId: c.id });
+        if (this.#dispatch(view, ship, c.settlementId, decision.commands)) decision.intent = label;
+      } else if (
+        c.pickupSettlementId &&
+        this.#dispatch(view, ship, c.pickupSettlementId, decision.commands)
+      ) {
+        decision.intent = `${label} (to pickup at ${view.settlement(c.pickupSettlementId)?.name})`;
       } else {
-        this.#giveUp(view, ship, c, cmds);
+        this.#giveUp(ship, c, decision);
       }
       return;
     }
     // Delivery contract: source the goods (never at the destination itself).
     const need = c.qty - held;
     if (cargoMass(ship) + need > view.shipClass(ship.classId).cargoT) {
-      this.#giveUp(view, ship, c, cmds);
+      this.#giveUp(ship, c, decision);
       return;
     }
     if (here !== c.settlementId && this.#spare(view, here, c.good) >= need) {
       const ask = view.ask(here, c.good);
       if (ask * need <= this.#available(view)) {
-        cmds.push({
+        decision.commands.push({
           type: 'BuyCargo',
           shipId: ship.id,
           good: c.good,
           qty: need,
           maxPrice: ask * 1.05,
         });
-        if (this.#dispatch(view, ship, c.settlementId, cmds)) {
-          view.setIntent(ship.id, label);
+        if (this.#dispatch(view, ship, c.settlementId, decision.commands)) {
+          decision.intent = label;
           return;
         }
       }
     }
     const src = this.#landedSource(view, ship, c.good, need, c.settlementId);
-    if (src && src !== here && this.#dispatch(view, ship, src, cmds)) {
-      view.setIntent(ship.id, `${label} (buying at ${view.settlement(src)?.name})`);
+    if (src && src !== here && this.#dispatch(view, ship, src, decision.commands)) {
+      decision.intent = `${label} (buying at ${view.settlement(src)?.name})`;
       return;
     }
-    this.#giveUp(view, ship, c, cmds);
+    this.#giveUp(ship, c, decision);
   }
 
-  #giveUp(view: CompanyView, ship: Readonly<Ship>, c: Readonly<Contract>, cmds: Command[]): void {
-    if (c.status === 'accepted') cmds.push({ type: 'AbandonContract', contractId: c.id });
+  #giveUp(ship: DeepReadonly<Ship>, c: DeepReadonly<Contract>, decision: ShipDecision): void {
+    if (c.status === 'accepted')
+      decision.commands.push({ type: 'AbandonContract', contractId: c.id });
     this.#jobs.delete(ship.id);
-    view.setIntent(ship.id, `Abandoned contract ${c.id} (no feasible route)`);
+    decision.intent = `Abandoned contract ${c.id} (no feasible route)`;
   }
 
   #buyAndGo(
     view: CompanyView,
-    ship: Readonly<Ship>,
+    ship: DeepReadonly<Ship>,
     job: Job & { kind: 'trade' },
-    cmds: Command[],
+    decision: ShipDecision,
   ): boolean {
     const here = ship.siteId!;
     const cls = view.shipClass(ship.classId);
@@ -223,18 +231,21 @@ export class AiBrain implements CompanyController {
       ),
     );
     if (qty < Math.max(1, cls.cargoT * MIN_LOAD_FRACTION)) return false;
-    cmds.push({ type: 'BuyCargo', shipId: ship.id, good: job.good, qty, maxPrice: ask * 1.05 });
-    if (!this.#dispatch(view, ship, job.destId, cmds)) return false;
+    decision.commands.push({
+      type: 'BuyCargo',
+      shipId: ship.id,
+      good: job.good,
+      qty,
+      maxPrice: ask * 1.05,
+    });
+    if (!this.#dispatch(view, ship, job.destId, decision.commands)) return false;
     job.qty = qty;
     job.buyPrice = ask;
-    view.setIntent(
-      ship.id,
-      `Trade: ${fmtTonnes(qty)} ${job.good} ${view.settlement(here)?.name} ${fmtMoney(ask)}/t → ${view.settlement(job.destId)?.name}`,
-    );
+    decision.intent = `Trade: ${fmtTonnes(qty)} ${job.good} ${view.settlement(here)?.name} ${fmtMoney(ask)}/t → ${view.settlement(job.destId)?.name}`;
     return true;
   }
 
-  #sellOrRoute(view: CompanyView, ship: Readonly<Ship>, cmds: Command[]): boolean {
+  #sellOrRoute(view: CompanyView, ship: DeepReadonly<Ship>, decision: ShipDecision): boolean {
     const here = ship.siteId!;
     let remaining = false;
     for (const g of GOOD_IDS) {
@@ -242,13 +253,13 @@ export class AiBrain implements CompanyController {
       if (held <= 0) continue;
       const qty = Math.min(held, view.demandRoom(here, g));
       if (qty > 1e-6 && view.bid(here, g, qty) > 0) {
-        cmds.push({ type: 'SellCargo', shipId: ship.id, good: g, qty, minPrice: 0 });
+        decision.commands.push({ type: 'SellCargo', shipId: ship.id, good: g, qty, minPrice: 0 });
       }
       if (held - qty > 1e-6) remaining = true;
     }
-    const sold = cmds.some((c) => c.type === 'SellCargo' && c.shipId === ship.id);
+    const sold = decision.commands.some((c) => c.type === 'SellCargo' && c.shipId === ship.id);
     if (!remaining) {
-      view.setIntent(ship.id, `Sold cargo at ${view.settlement(here)?.name}`);
+      decision.intent = `Sold cargo at ${view.settlement(here)?.name}`;
       // Plan the next job on fresh state (after the sales apply), not in this decision.
       if (sold) {
         this.#nextLook.set(ship.id, view.jd);
@@ -268,7 +279,7 @@ export class AiBrain implements CompanyController {
         if (v > 0 && (!best || v > best.value)) best = { id: s.id, value: v, good: g };
       }
     }
-    if (best && this.#dispatch(view, ship, best.id, cmds)) {
+    if (best && this.#dispatch(view, ship, best.id, decision.commands)) {
       this.#jobs.set(ship.id, {
         kind: 'trade',
         good: best.good,
@@ -277,7 +288,7 @@ export class AiBrain implements CompanyController {
         destId: best.id,
         buyPrice: 0,
       });
-      view.setIntent(ship.id, `Taking unsold ${best.good} to ${view.settlement(best.id)?.name}`);
+      decision.intent = `Taking unsold ${best.good} to ${view.settlement(best.id)?.name}`;
       return true;
     }
     return false;
@@ -285,7 +296,7 @@ export class AiBrain implements CompanyController {
 
   // ── Job selection ──────────────────────────────────────────────────────────
 
-  #choose(view: CompanyView, ship: Readonly<Ship>): Candidate | null {
+  #choose(view: CompanyView, ship: DeepReadonly<Ship>): Candidate | null {
     const here = ship.siteId!;
     const cls = view.shipClass(ship.classId);
     const p = view.personality;
@@ -353,16 +364,15 @@ export class AiBrain implements CompanyController {
         score,
         label: () =>
           `Contract: ${fmtTonnes(c.qty)} ${c.good} → ${view.settlement(c.settlementId)?.name} (+${fmtMoney(profit)} est.)`,
-        execute: () => {
+        execute: (decision) => {
           this.#jobs.set(ship.id, { kind: 'contract', contractId: c.id });
-          const out: Command[] = [{ type: 'AcceptContract', contractId: c.id, shipId: ship.id }];
+          decision.commands.push({ type: 'AcceptContract', contractId: c.id, shipId: ship.id });
           this.#contractStep(
             view,
             ship,
             { ...c, status: 'accepted', shipId: ship.id, companyId: view.company.id },
-            out,
+            decision,
           );
-          return out;
         },
       });
     }
@@ -428,7 +438,7 @@ export class AiBrain implements CompanyController {
         score,
         label: () =>
           `Trade: ${r.good} ${srcName} ${fmtMoney(r.ask)}/t → ${dstName} ${fmtMoney(r.bid)}/t (+${fmtMoney(profit)} est.)`,
-        execute: () => {
+        execute: (decision) => {
           const job: Job = {
             kind: 'trade',
             good: r.good,
@@ -438,15 +448,13 @@ export class AiBrain implements CompanyController {
             buyPrice: r.ask,
           };
           this.#jobs.set(ship.id, job);
-          const out: Command[] = [];
           if (r.source === here) {
-            if (!this.#buyAndGo(view, ship, job, out)) this.#jobs.delete(ship.id);
-          } else if (this.#dispatch(view, ship, r.source, out)) {
-            view.setIntent(ship.id, `Repositioning to ${srcName} to buy ${r.good} for ${dstName}`);
+            if (!this.#buyAndGo(view, ship, job, decision)) this.#jobs.delete(ship.id);
+          } else if (this.#dispatch(view, ship, r.source, decision.commands)) {
+            decision.intent = `Repositioning to ${srcName} to buy ${r.good} for ${dstName}`;
           } else {
             this.#jobs.delete(ship.id);
           }
-          return out;
         },
       });
     }
@@ -458,7 +466,7 @@ export class AiBrain implements CompanyController {
   /** Sum days and running costs over consecutive legs (null if any leg is infeasible). */
   #legs(
     view: CompanyView,
-    ship: Readonly<Ship>,
+    ship: DeepReadonly<Ship>,
     legs: [string, string][],
   ): { days: number; cost: number } | null {
     const cls = view.shipClass(ship.classId);
@@ -481,7 +489,7 @@ export class AiBrain implements CompanyController {
   }
 
   /** Issue a dispatch only if the planner, fuel stock and cash allow it. */
-  #dispatch(view: CompanyView, ship: Readonly<Ship>, to: string, cmds: Command[]): boolean {
+  #dispatch(view: CompanyView, ship: DeepReadonly<Ship>, to: string, cmds: Command[]): boolean {
     const from = ship.siteId!;
     if (from === to) return false;
     const est = view.estimateTrip(ship.id, from, to);
@@ -500,7 +508,7 @@ export class AiBrain implements CompanyController {
   /** Source minimising goods cost + travel cost for this ship (then on to `dest`). */
   #landedSource(
     view: CompanyView,
-    ship: Readonly<Ship>,
+    ship: DeepReadonly<Ship>,
     good: GoodId,
     qty: number,
     dest: string,
