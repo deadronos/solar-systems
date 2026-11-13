@@ -16,6 +16,9 @@ export function fmtDays(d: number): string {
 
 export const fmtGood = (g: string) => g.replaceAll('_', ' ');
 
+/** Facility label for a recipe id, e.g. `smelt_steel` → "smelt steel". */
+const recipeName = (id: string) => id.replaceAll('_', ' ');
+
 /** Money an order is worth: the carrier's reward, or the price of a sell order's goods. */
 export const orderValue = (c: Pick<Contract, 'kind' | 'reward' | 'escrowCost'>): number =>
   c.kind === 'export' ? c.escrowCost : c.reward;
@@ -69,6 +72,12 @@ export function describeEvent(e: LogisticsEvent, name: (id: string) => string): 
       return `${name(e.settlementId)} recovered from its shortage`;
     case 'PopulationMilestone':
       return `${name(e.settlementId)} reached ${e.population.toLocaleString('en-US')} people`;
+    case 'InvestmentDecision':
+      return `${name(e.settlementId)} ${e.isNew ? 'plans a new' : 'plans to expand its'} ${recipeName(e.recipeId)} (+${e.ratePerDay.toFixed(1)}/day): ${e.reason}`;
+    case 'FacilityBuilt':
+      return `${name(e.settlementId)} ${e.isNew ? 'opened' : 'expanded'} ${recipeName(e.recipeId)} (${e.ratePerDay.toFixed(1)}/day)`;
+    case 'InvestmentAbandoned':
+      return `${name(e.settlementId)} gave up on ${recipeName(e.recipeId)}: the build kit never arrived`;
     case 'HousingExpanded':
       return `${name(e.settlementId)} expanded housing to ${e.capacity.toLocaleString('en-US')}`;
     case 'CompanyFounded':

@@ -21,7 +21,8 @@ pnpm check        # typecheck + lint + format check + tests
   `src/sim/logistics/data/`.
 - **Economy:** 14 goods, recipe-based production (chains are just recipes with inputs),
   supply/demand prices per settlement, population with survival/basic/comfort needs, housing
-  growth, Earth charter funding (a stipend per head and per unit of output, plus a bounty on
+  growth, settlements that invest in new and larger facilities (imported build kits, machinery
+  maintenance), Earth charter funding (a stipend per head and per unit of output, plus a bounty on
   exports sold to Earth). Earth's prices move with recent trade volume. A money ledger tracks
   every credit that enters or leaves the economy.
 - **Orders:** settlements post _delivery_ orders (carrier sources the goods) or _freight_ orders

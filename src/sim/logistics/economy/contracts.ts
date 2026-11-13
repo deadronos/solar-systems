@@ -106,7 +106,7 @@ function bestSource(
 }
 
 /** Money a settlement keeps back for a year of survival imports at worst-case prices. */
-function survivalReserve(world: LogisticsWorld, s: Settlement): number {
+export function survivalReserve(world: LogisticsWorld, s: Settlement): number {
   const c = world.constants;
   let perDay = 0;
   for (const [g, perCapita] of Object.entries(c.population.needsPerCapitaPerDay.survival)) {

@@ -47,6 +47,20 @@ export interface Facility {
   recipeId: string;
   /** Max batches per day. */
   maxRatePerDay: number;
+  /** Rolling share of capacity actually run (absent until the first production tick). */
+  utilisation?: number;
+}
+
+/** A facility a settlement is building or expanding, waiting for its build kit (#14). */
+export interface InvestmentProject {
+  recipeId: string;
+  /** Batches per day the project adds. */
+  addRatePerDay: number;
+  /** A new facility rather than an expansion. */
+  isNew: boolean;
+  /** Goods consumed when the project completes. */
+  kit: RecipeLine[];
+  startedJd: number;
 }
 
 export interface Site {
@@ -66,6 +80,11 @@ export interface SettlementDef {
   treasury: number;
   isShipyard: boolean;
   isDeepMarket: boolean;
+  /**
+   * Extraction recipes (no inputs) the site's deposits allow building, besides the ones it
+   * already runs. Processing recipes can be built anywhere.
+   */
+  deposits?: string[];
   /** Deep market only: price multipliers vs base (e.g. bulk goods hauled up Earth's gravity well). */
   deepPriceFactors?: Partial<Record<GoodId, number>>;
 }
@@ -108,6 +127,10 @@ export interface Settlement extends SettlementDef {
    * escrow held until loading). Spending decisions use `treasury − committed`.
    */
   committed: number;
+  /** Workers left unemployed by the last production tick (absent in older snapshots). */
+  idleWorkers?: number;
+  /** Facility being built or expanded, if any (absent in older snapshots). */
+  project?: InvestmentProject | null;
 }
 
 export interface ShipClass {
@@ -286,6 +309,22 @@ export interface EconomyConstants {
     sellOrderStockMultiple: number;
     sellOrderDiscount: number;
     minSellOrderT: number;
+  };
+  industry: {
+    reviewDays: number;
+    expansionFraction: number;
+    newFacilityWorkers: number;
+    kitPerWorker: RecipeLine[];
+    kitDemandDays: number;
+    projectTimeoutDays: number;
+    maxPaybackDays: number;
+    exportNetback: number;
+    survivalMargin: number;
+    minUtilisation: number;
+    maintenancePerWorkerDay: number;
+    wearPerYear: number;
+    minRatePerDay: number;
+    survivalInputReserveDays: number;
   };
   ships: {
     dockingFee: number;
