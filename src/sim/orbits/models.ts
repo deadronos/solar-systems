@@ -9,7 +9,7 @@ import type { KeplerElements } from './kepler.ts';
 
 /**
  * JPL "Keplerian Elements for Approximate Positions of the Major Planets"
- * (E.M. Standish, Table 1, valid 1800–2050 AD). Angles in degrees, rates per Julian century.
+ * (E.M. Standish, Tables 2a/2b, valid 3000 BC–3000 AD). Angles in degrees, rates per Julian century.
  * Reference frame: J2000 ecliptic & equinox, heliocentric.
  */
 export interface JplApproxOrbit {
@@ -18,6 +18,8 @@ export interface JplApproxOrbit {
   elements: readonly [number, number, number, number, number, number];
   /** Rates of the above per Julian century. */
   rates: readonly [number, number, number, number, number, number];
+  /** Table 2b [b, c, s, f] for bT² + c cos(fT) + s sin(fT), in degrees. */
+  meanAnomalyCorrection?: readonly [number, number, number, number];
 }
 
 /**
@@ -53,13 +55,19 @@ export function elementsAt(model: OrbitModel, jd: number): KeplerElements {
       const [aR, eR, IR, LR, wR, OR] = model.rates;
       const varpi = w0 + wR * T;
       const Omega = O0 + OR * T;
+      let meanAnomaly = L0 + LR * T - varpi;
+      if (model.meanAnomalyCorrection) {
+        const [b, c, s, f] = model.meanAnomalyCorrection;
+        const phase = f * T * DEG;
+        meanAnomaly += b * T * T + c * Math.cos(phase) + s * Math.sin(phase);
+      }
       return {
         a: (a0 + aR * T) * AU_KM,
         e: e0 + eR * T,
         i: (I0 + IR * T) * DEG,
         Omega: Omega * DEG,
         omega: (varpi - Omega) * DEG,
-        M: (L0 + LR * T - varpi) * DEG,
+        M: meanAnomaly * DEG,
       };
     }
     case 'meanElements': {
@@ -87,19 +95,27 @@ export interface ElementRates {
   n: number;
 }
 
-export function elementRates(model: OrbitModel): ElementRates {
+export function elementRates(model: OrbitModel, jd: number): ElementRates {
   switch (model.kind) {
     case 'jplApprox': {
       // Per-century rates of a, e, I, L, ϖ, Ω → M = L − ϖ, ω = ϖ − Ω.
       const [aR, eR, IR, LR, wR, OR] = model.rates;
       const k = DEG / DAYS_PER_JULIAN_CENTURY;
+      let anomalyRate = LR - wR;
+      if (model.meanAnomalyCorrection) {
+        const [b, c, s, f] = model.meanAnomalyCorrection;
+        const T = (jd - J2000) / DAYS_PER_JULIAN_CENTURY;
+        const frequency = f * DEG;
+        const phase = frequency * T;
+        anomalyRate += 2 * b * T + frequency * (-c * Math.sin(phase) + s * Math.cos(phase));
+      }
       return {
         aDot: (aR * AU_KM) / DAYS_PER_JULIAN_CENTURY,
         eDot: eR / DAYS_PER_JULIAN_CENTURY,
         iDot: IR * k,
         OmegaDot: OR * k,
         omegaDot: (wR - OR) * k,
-        n: (LR - wR) * k,
+        n: anomalyRate * k,
       };
     }
     case 'meanElements':

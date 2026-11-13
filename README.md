@@ -89,13 +89,13 @@ controllers) live in [`docs/agents/`](docs/agents/); start from [AGENTS.md](AGEN
 ## Accuracy notes
 
 - **Planets & Pluto:** JPL/Standish approximate Keplerian elements with secular rates
-  (1800–2050 AD, arc-minute level; less accurate outside that range). The tests check these
-  against JPL Horizons positions at J2000.
+  and outer-body mean anomaly corrections (Tables 2a/2b, 3000 BC–3000 AD). Accuracy varies
+  by body and epoch. Tests compare selected positions with JPL Horizons at J2000 and in 2100.
 - **Moons:** JPL mean elements at J2000. Most moons use their parent's equatorial frame
   (IAU poles), so Uranus's moons orbit on their side and Triton orbits retrograde. The Moon
   includes its 18.6-year nodal regression and 8.85-year apsidal precession. The phases of
   the smaller moons are approximate.
-- **Dwarf planets & asteroids:** two-body propagation from osculating elements, with no
+- **Other dwarf planets & asteroids:** two-body propagation from osculating elements, with no
   perturbations.
 - **Belts:** synthetic particles drawn from the observed element distributions: Kirkwood gaps,
   Hildas in 3:2 resonance, L4/L5 trojans, plutinos, cold and hot classical Kuiper belt,

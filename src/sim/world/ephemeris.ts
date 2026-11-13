@@ -143,7 +143,7 @@ export class Ephemeris {
       return false;
     }
     const el = elementsAt(def.orbit, jd);
-    const r = elementRates(def.orbit);
+    const r = elementRates(def.orbit, jd);
     const { a, e, i, Omega, omega } = el;
     const E = solveKepler(el.M, e);
     positionAtEccentricAnomaly(el, E, pos);
