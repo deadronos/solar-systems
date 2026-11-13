@@ -34,7 +34,8 @@ Scene structure and the patterns every scene component follows. Read this before
 - **Positions:** `relativeToScene(eph.position(id), frame.origin, obj.position)`. Groups are
   placed relative to the origin. Geometry stays origin-free (local to its parent or anchor).
 - **Sizes:** `pixelsPerUnit(camera, distance, size.height)` drives the minimum on-screen body
-  size (`minPixelRadius`), orbit hiding below 10 px, and label decluttering.
+  size (`minPixelRadius`), the orbit fade-out (20 → 8 px semi-major axis), and label
+  decluttering.
 
 ## Resources
 
@@ -56,6 +57,11 @@ Scene structure and the patterns every scene component follows. Read this before
   Trajectories upload positions relative to an anchor sample and dim by `aTime` (days after
   departure) against `uNow`.
 - If GLSL has a JS mirror (`solveKeplerFixed`), keep the two in sync. A test checks the mirror.
+- Orbit lines (`OrbitPath`) are `Line2`/`LineMaterial` fat lines (1.5 CSS px; set
+  `material.resolution` to the canvas size each frame). Each segment endpoint carries its
+  eccentric anomaly as a fraction of a turn, and `uBodyPhase` (from
+  `Ephemeris.eccentricAnomaly`) makes the line brightest just behind the body. Rebuilds write
+  the interleaved `instanceStart` buffer in place.
 
 ## DOM labels and markers
 

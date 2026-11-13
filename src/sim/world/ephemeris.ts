@@ -275,6 +275,18 @@ export class Ephemeris {
     return { pole, node, angle: rt.W0 + (turns - Math.floor(turns)) * TAU };
   }
 
+  /**
+   * Eccentric anomaly (radians, wrapped to [0, 2π)) of a body on its orbit at `jd`: where it
+   * sits on the ellipse that `orbitPath` samples. Null for bodies without an orbit.
+   */
+  eccentricAnomaly(id: string, jd = this.#jd): number | null {
+    const orbit = this.#rt(id).def.orbit;
+    if (!orbit) return null;
+    const el = elementsAt(orbit, jd);
+    const E = solveKepler(el.M, el.e) % TAU;
+    return E < 0 ? E + TAU : E;
+  }
+
   orbitalPeriodDays(id: string): number | null {
     const orbit = this.#rt(id).def.orbit;
     return orbit ? periodDays(orbit) : null;
