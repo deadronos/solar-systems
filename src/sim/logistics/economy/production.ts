@@ -14,7 +14,7 @@ const producesSurvival = (world: LogisticsWorld, recipeId: string): boolean =>
  */
 export function runProduction(s: Settlement, world: LogisticsWorld, dtDays: number): void {
   if (s.isDeepMarket) return;
-  let workers = s.population * world.constants.workforceFraction;
+  let workers = s.population * world.constants.population.workforceFraction;
   // Life support first: recipes that output survival goods get workers and inputs first.
   const survivalFirst = s.facilities.toSorted(
     (a, b) =>

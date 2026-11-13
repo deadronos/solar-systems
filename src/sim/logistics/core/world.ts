@@ -17,16 +17,32 @@ import {
   type Ship,
   type ShipClass,
 } from '../economy/types.ts';
-import { EventLog } from './events.ts';
+import { EventLog, type EventLogState } from './events.ts';
+import { dispatchAction, type ScheduledAction } from './actions.ts';
 import type { CompanyController } from '../controllers/types.ts';
 import type { StatsRecorder } from '../economy/stats.ts';
-import { NavContext } from '../navigation/planner.ts';
+import { NavContext, type NavState } from '../navigation/planner.ts';
 import { applyCommands, type Command } from './commands.ts';
-import { Scheduler } from './scheduler.ts';
+import { Scheduler, type SchedulerState } from './scheduler.ts';
 import { JD_EPSILON, TICK_DAYS } from './time.ts';
 
 export type Phase<W> = (world: W, dtDays: number) => void;
-export type ScheduledAction<W> = (world: W) => void;
+export { sortedIds } from './sortedIds.ts';
+
+type SettlementState = Omit<Settlement, 'treasury'> & { treasury: number | null };
+
+export interface WorldState {
+  jd: number;
+  ids: [string, number][];
+  rngs: [string, number][];
+  scheduler: SchedulerState<ScheduledAction>;
+  events: EventLogState;
+  nav: NavState | null;
+  settlements: [string, SettlementState][];
+  companies: [string, Company][];
+  ships: [string, Ship][];
+  contracts: [string, Contract][];
+}
 
 function hashName(name: string): number {
   let h = 2_166_136_261;
@@ -57,11 +73,14 @@ export class LogisticsWorld {
   readonly ephemeris: Ephemeris;
   readonly events = new EventLog();
   #jd: number;
+  #replica = false;
   #phases: { name: string; fn: Phase<LogisticsWorld> }[] = [];
-  #scheduler = new Scheduler<ScheduledAction<LogisticsWorld>>();
+  #scheduler = new Scheduler<ScheduledAction>();
+  readonly #dispatch: typeof dispatchAction;
   #rngs = new Map<string, Rng>();
 
-  constructor(config: ScenarioConfig, ephemeris: Ephemeris) {
+  constructor(config: ScenarioConfig, ephemeris: Ephemeris, dispatch = dispatchAction) {
+    this.#dispatch = dispatch;
     this.config = config;
     this.ephemeris = ephemeris;
     this.#jd = config.startJd;
@@ -86,6 +105,52 @@ export class LogisticsWorld {
       this.companies.set(company.id, company);
       for (const s of def.ships) this.addShip(company, s.classId, s.siteId, s.name, 'docked');
     }
+  }
+
+  /** State owned by the core, for the snapshot boundary in createWorld.ts. */
+  capture(): WorldState {
+    if (this.#replica) throw new Error('Cannot snapshot an economy replica');
+    return {
+      jd: this.#jd,
+      ids: [...this.#ids],
+      rngs: Array.from(this.#rngs, ([name, rng]) => [name, rng.state()]),
+      scheduler: this.#scheduler.capture(),
+      events: this.events.capture(),
+      nav: this.#nav?.capture() ?? null,
+      settlements: Array.from(this.settlements, ([id, settlement]) => [
+        id,
+        {
+          ...settlement,
+          treasury: settlement.treasury === Number.POSITIVE_INFINITY ? null : settlement.treasury,
+        },
+      ]),
+      companies: [...this.companies],
+      ships: [...this.ships],
+      contracts: [...this.contracts],
+    };
+  }
+
+  /** Restore into a freshly wired authoritative world. The caller transfers state ownership. */
+  restore(state: WorldState): void {
+    this.#jd = state.jd;
+    this.#ids = new Map(state.ids);
+    this.#rngs = new Map(state.rngs.map(([name, seed]) => [name, createRng(seed)]));
+    this.#scheduler.restore(state.scheduler);
+    this.events.restore(state.events);
+    if (state.nav) this.nav.restore(state.nav);
+    this.settlements.clear();
+    this.companies.clear();
+    this.ships.clear();
+    this.contracts.clear();
+    for (const [id, settlement] of state.settlements) {
+      this.settlements.set(id, {
+        ...settlement,
+        treasury: settlement.treasury ?? Number.POSITIVE_INFINITY,
+      });
+    }
+    for (const [id, company] of state.companies) this.companies.set(id, company);
+    for (const [id, ship] of state.ships) this.ships.set(id, ship);
+    for (const [id, contract] of state.contracts) this.contracts.set(id, contract);
   }
 
   /** Deterministic sequential id with a prefix, e.g. `ship-12`. */
@@ -130,7 +195,7 @@ export class LogisticsWorld {
 
   /** Navigation context (lazily created; caches launch-window grids). */
   get nav(): NavContext {
-    return (this.#nav ??= new NavContext(this.ephemeris));
+    return (this.#nav ??= new NavContext(this.ephemeris, this.constants.nav));
   }
 
   setController(companyId: string, controller: CompanyController): void {
@@ -158,6 +223,7 @@ export class LogisticsWorld {
    * `logistics/sync`). Never call this on a world that is advanced with `advanceTo`.
    */
   setReplicaJd(jd: number): void {
+    this.#replica = true;
     this.#jd = jd;
   }
 
@@ -171,11 +237,15 @@ export class LogisticsWorld {
     return r;
   }
 
+  get phaseCount(): number {
+    return this.#phases.length;
+  }
+
   addPhase(name: string, fn: Phase<LogisticsWorld>): void {
     this.#phases.push({ name, fn });
   }
 
-  schedule(jd: number, action: ScheduledAction<LogisticsWorld>): void {
+  schedule(jd: number, action: ScheduledAction): void {
     this.#scheduler.schedule(jd, action);
   }
 
@@ -188,7 +258,13 @@ export class LogisticsWorld {
     let ticks = 0;
     while (ticks < maxTicks && this.#jd + TICK_DAYS <= targetJd + JD_EPSILON) {
       const next = this.#jd + TICK_DAYS;
-      for (let a = this.#scheduler.popDue(next); a; a = this.#scheduler.popDue(next)) a(this);
+      for (
+        let action = this.#scheduler.popDue(next);
+        action;
+        action = this.#scheduler.popDue(next)
+      ) {
+        this.#dispatch(this, action);
+      }
       this.#jd = next;
       for (const p of this.#phases) p.fn(this, TICK_DAYS);
       ticks++;
@@ -197,22 +273,19 @@ export class LogisticsWorld {
   }
 }
 
-/** Days of survival supplies every settlement starts with (at least). */
-const INITIAL_RESERVE_DAYS = 365;
-
-/** Sorted keys for deterministic iteration. */
-export const sortedIds = <T>(map: ReadonlyMap<string, T>): string[] => [...map.keys()].toSorted();
-
 function createSettlement(def: SettlementDef, world: LogisticsWorld): Settlement {
   const market = {} as Record<GoodId, MarketEntry>;
   for (const g of GOOD_IDS) {
     const base = world.goods.get(g)?.basePrice ?? 0;
     const factor = def.deepPriceFactors?.[g] ?? 1;
     // Every settlement starts with at least a year of survival supplies.
-    const survivalNeed = world.config.constants.needsPerCapitaPerDay.survival[g] ?? 0;
+    const survivalNeed = world.constants.population.needsPerCapitaPerDay.survival[g] ?? 0;
     const stock = def.isDeepMarket
-      ? world.config.constants.deepMarketStock
-      : Math.max(def.initialStock[g] ?? 0, def.population * survivalNeed * INITIAL_RESERVE_DAYS);
+      ? world.constants.markets.deepMarketStock
+      : Math.max(
+          def.initialStock[g] ?? 0,
+          def.population * survivalNeed * world.constants.population.initialReserveDays,
+        );
     market[g] = {
       stock,
       targetStock: stock,

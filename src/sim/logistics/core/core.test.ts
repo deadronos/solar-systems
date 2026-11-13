@@ -79,10 +79,12 @@ describe('LogisticsWorld', () => {
   });
 
   it('runs scheduled items in time order before the tick containing them', () => {
-    const w = new LogisticsWorld(minimalScenario(1), eph);
     const order: string[] = [];
-    w.schedule(START_JD + 0.3, () => order.push('b'));
-    w.schedule(START_JD + 0.1, () => order.push('a'));
+    const w = new LogisticsWorld(minimalScenario(1), eph, (_, action) => {
+      if (action.kind === 'depart') order.push(action.shipId);
+    });
+    w.schedule(START_JD + 0.3, { kind: 'depart', shipId: 'b' });
+    w.schedule(START_JD + 0.1, { kind: 'depart', shipId: 'a' });
     w.addPhase('probe', () => order.push(`tick@${(w.jd - START_JD).toFixed(2)}`));
     w.advanceTo(START_JD + 0.5);
     expect(order).toEqual(['a', 'tick@0.25', 'b', 'tick@0.50']);

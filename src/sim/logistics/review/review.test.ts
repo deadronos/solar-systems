@@ -99,6 +99,37 @@ describe('review fixes', () => {
     expect(w.companies.get('t')!.cash).toBeLessThan(cash);
   });
 
+  it('exposes frozen company, ship, settlement, contract and planner data to controllers', () => {
+    const { w, c } = withFreight([carrier]);
+    const ship = [...w.ships.values()][0]!;
+    const col = w.settlements.get('col')!;
+    const view = createCompanyView(w, 't');
+    const estimate = view.estimateTrip(ship.id, 'farm', 'col')!;
+    const mutations: [object, string, unknown][] = [
+      [view.company, 'cash', 0],
+      [view.company.shipIds, '0', 'other'],
+      [view.ships()[0]!.cargo, 'food', 1e9],
+      [view.settlement('col')!.market.food, 'stock', 1e9],
+      [view.settlements()[0]!.site, 'bodyId', 'sun'],
+      [view.market('col', 'food'), 'stock', 1e9],
+      [view.contract(c.id)!, 'reward', 0],
+      [view.openContracts().find((contract) => contract.id === c.id)!, 'status', 'expired'],
+      [view.personality.preferredTiers, '0', 0],
+      [view.shipClass(ship.classId), 'cargoT', 1e9],
+      [view.shipClasses()[0]!, 'price', 0],
+      [estimate, 'arriveJd', 0],
+    ];
+    for (const [obj, key, value] of mutations) {
+      expect(() => Object.defineProperty(obj, key, { value })).toThrow(TypeError);
+    }
+
+    ship.cargo.food = 17;
+    col.market.food.stock = 42;
+    expect(view.ships()[0]!.cargo.food).toBeUndefined();
+    expect(view.market('col', 'food').stock).not.toBe(42);
+    expect(view.estimateTrip(ship.id, 'farm', 'col')).toEqual(estimate);
+  });
+
   it('the AI adopts a contract its ship holds even if its memory lost it', () => {
     const { w, c } = withFreight([carrier]);
     const ship = [...w.ships.values()][0]!;

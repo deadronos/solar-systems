@@ -87,7 +87,7 @@ export function SettlementInspector({ id }: { id: string }) {
                   )}
                 </td>
                 <td className={`num ${ratio > 1.5 ? 'hot' : ratio < 0.6 ? 'cold' : ''}`}>
-                  {fmtMoney(askPrice(e, world.constants))}
+                  {fmtMoney(askPrice(e, world.constants.markets))}
                 </td>
                 <td>{trend.length > 1 && <Sparkline values={trend} width={48} height={14} />}</td>
               </tr>

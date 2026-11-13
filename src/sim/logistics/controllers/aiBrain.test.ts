@@ -6,7 +6,8 @@ import { createWorld } from '../createWorld.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { SETTLEMENTS } from '../data/settlements.ts';
 import type { CompanyDef, ScenarioConfig, SettlementDef } from '../economy/types.ts';
-import { riskAdjustedProfit } from './aiBrain.ts';
+import { AiBrain, riskAdjustedProfit } from './aiBrain.ts';
+import { createCompanyView } from './view.ts';
 
 const eph = new Ephemeris(DEFAULT_CATALOG);
 const earth = SETTLEMENTS.find((s) => s.isDeepMarket)!;
@@ -49,6 +50,43 @@ describe('AiBrain', () => {
     const ship = [...w.ships.values()][0]!;
     expect(ship.cargo.electronics ?? 0).toBeGreaterThan(0);
     expect(ship.plan?.toSiteId).toBe('col');
+    expect(ship.intent).toMatch(/electronics/);
+  });
+
+  it('skips a profitable trade when the scenario docking fee exceeds its margin', () => {
+    const base = scenario([company()]);
+    const withFee = (dockingFee: number) => {
+      const world = createWorld(
+        {
+          ...base,
+          constants: { ...base.constants, ships: { ...base.constants.ships, dockingFee } },
+        },
+        eph,
+      );
+      return new AiBrain().decide(createCompanyView(world, 'ai'), [{ kind: 'periodic' }]);
+    };
+
+    expect(withFee(base.constants.ships.dockingFee)).toContainEqual(
+      expect.objectContaining({ type: 'BuyCargo', good: 'electronics' }),
+    );
+    expect(withFee(2_000_000_000)).not.toContainEqual(
+      expect.objectContaining({ type: 'PlanAndDispatch' }),
+    );
+  });
+
+  it('returns the intent in the command batch without mutating the ship during decide', () => {
+    const w = createWorld(scenario([company()]), eph);
+    const ship = [...w.ships.values()][0]!;
+    const before = ship.intent;
+    const commands = new AiBrain().decide(createCompanyView(w, 'ai'), [
+      { kind: 'shipIdle', shipId: ship.id },
+    ]);
+
+    expect(ship.intent).toBe(before);
+    expect(commands.filter((cmd) => cmd.type === 'SetIntent')).toEqual([
+      { type: 'SetIntent', shipId: ship.id, text: expect.stringMatching(/electronics/) },
+    ]);
+    w.issue('ai', commands);
     expect(ship.intent).toMatch(/electronics/);
   });
 

@@ -4,6 +4,7 @@ The HUD panels, how they read the simulation, and the zustand stores. Read this 
 `src/ui/**` or `src/state/**`.
 
 **Source of truth:** `src/ui/Hud.tsx`, `src/ui/hooks.ts`, `src/ui/logistics/common.tsx`, `src/ui/logistics/format.ts`,
+`src/sim/logistics/format.ts`,
 `src/ui/logistics/inspectors/*.tsx`, `src/state/*.ts`, `src/index.css`.
 
 ## Layout
@@ -52,8 +53,9 @@ Never write to the sim from the UI except through its public control API (`clock
   selects and follows. `nameOf(world, id)` resolves any id to a display name.
 - **Inspectors must tolerate missing entities.** Ships and contracts disappear, so render a
   "no longer exists" note; a test covers this.
-- Formatting helpers are in `ui/logistics/format.ts` (`fmtMoney` with ₡ and k/M/B, `fmtTonnes`,
-  `fmtDays`, `fmtGood`, `describeEvent`) and `ui/format.ts` (dates, rates, presets).
+- The HUD and AI intent text share `fmtMoney` (₡ and k/M/B) and `fmtTonnes` from
+  `sim/logistics/format.ts`. The HUD also uses `ui/logistics/format.ts` for `fmtDays`,
+  `fmtGood` and `describeEvent`, and `ui/format.ts` for dates, rates and presets.
   - `describeEvent` must cover every event type; the switch is exhaustive.
   - Use typographic minus `−` for negatives, as the helpers do.
 

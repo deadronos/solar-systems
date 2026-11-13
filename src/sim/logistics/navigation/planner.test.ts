@@ -101,6 +101,27 @@ describe('planner', () => {
     expect(plan.legs.every((l) => l.kind === 'hold')).toBe(true);
   });
 
+  it('uses the scenario docking duration in both estimates and plans', () => {
+    const custom = new LogisticsWorld(
+      {
+        ...DEFAULT_SCENARIO,
+        constants: {
+          ...DEFAULT_SCENARIO.constants,
+          nav: { ...DEFAULT_SCENARIO.constants.nav, sameBodyDays: 2 },
+        },
+      },
+      eph,
+    );
+    const from = site('earth-exchange');
+    const to = site('gateway');
+    const shipClass = cls('chem-tug');
+    const estimate = custom.nav.estimateCached(shipClass, from, to, START_JD)!;
+    const plan = planTrip(shipClass, from, to, START_JD, custom.nav)!;
+    expect(estimate.arriveJd).toBe(START_JD + 2);
+    expect(plan.arriveJd).toBe(estimate.arriveJd);
+    expect(plan.legs[0]?.t1).toBe(estimate.arriveJd);
+  });
+
   it('local Earth→Luna tier-1 hop takes a few days', () => {
     const est = estimateTrip(cls('chem-tug'), site('gateway'), site('luna-base'), START_JD, ctx)!;
     const days = est.arriveJd - est.departJd;

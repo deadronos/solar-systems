@@ -24,7 +24,7 @@ describe('20-year soak', () => {
   it('stays stable, alive and growing', { timeout: 180_000 }, () => {
     const w = createWorld(DEFAULT_SCENARIO, eph(), { controllers: true });
     const marsStart = w.settlements.get('mars-colony')!.population;
-    const c = w.constants;
+    const { markets, population } = w.constants;
     const starvingSince = new Map<string, number>();
     let maxStarvingDays = 0;
     let worst = '';
@@ -39,8 +39,8 @@ describe('20-year soak', () => {
               `${s.id} ${g} stock ${e.stock}`,
             ).toBe(true);
             const base = w.goods.get(g as never)!.basePrice;
-            expect(e.price).toBeGreaterThanOrEqual(base * c.priceClampMin - 1e-6);
-            expect(e.price).toBeLessThanOrEqual(base * c.priceClampMax + 1e-6);
+            expect(e.price).toBeGreaterThanOrEqual(base * markets.priceClampMin - 1e-6);
+            expect(e.price).toBeLessThanOrEqual(base * markets.priceClampMax + 1e-6);
           }
           expect(Number.isFinite(s.population) && s.population >= 0).toBe(true);
           // Money promised to contracts is reserved, so paying them never overdraws.
@@ -52,7 +52,7 @@ describe('20-year soak', () => {
             .reduce((a, c) => a + outstanding(c), 0);
           expect(s.committed, `${s.id} committed`).toBeCloseTo(owed, 0);
           expect(s.committed).toBeLessThanOrEqual(s.treasury + 1e-6);
-          if (s.satisfaction.survival < c.emigrationThreshold) {
+          if (s.satisfaction.survival < population.emigrationThreshold) {
             if (!starvingSince.has(s.id)) starvingSince.set(s.id, w.jd);
             const d = w.jd - starvingSince.get(s.id)!;
             if (d > maxStarvingDays) {
