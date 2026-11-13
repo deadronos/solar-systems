@@ -35,6 +35,16 @@ describe('DEFAULT_SCENARIO', () => {
     expect(s.settlements).toHaveLength(9);
   });
 
+  it('gives every settlement body (and its planet) a GM for the trip planner', () => {
+    const byId = new Map(DEFAULT_CATALOG.map((b) => [b.id, b]));
+    for (const st of s.settlements) {
+      const body = byId.get(st.site.bodyId)!;
+      expect(body.gm, body.id).toBeGreaterThan(0);
+      const parent = body.parentId ? byId.get(body.parentId) : undefined;
+      if (parent && parent.id !== 'sun') expect(parent.gm, parent.id).toBeGreaterThan(0);
+    }
+  });
+
   it('starts company ships at real settlements with real classes and personalities', () => {
     const sites = new Set(s.settlements.map((x) => x.id));
     const classes = new Set(s.shipClasses.map((c) => c.id));

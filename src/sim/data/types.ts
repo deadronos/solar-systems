@@ -29,7 +29,10 @@ export interface BodyDefinition {
   radiusKm: number;
   /** Polar flattening f = (a − c) / a. */
   flattening?: number;
-  /** GM in km³/s² (optional, informational). */
+  /**
+   * GM in km³/s². The trip planner needs it for every body a settlement sits on or orbits
+   * (surface Δv, planet-centred transfers); bodies without it count as massless.
+   */
   gm?: number;
   orbit?: OrbitModel;
   orbitFrame?: OrbitFrame;

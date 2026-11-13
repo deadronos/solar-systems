@@ -14,7 +14,6 @@ import type { TripEstimate } from '../navigation/planner.ts';
 export type WakeReason =
   | { kind: 'shipIdle'; shipId: string }
   | { kind: 'shipArrived'; shipId: string }
-  | { kind: 'contractPosted'; contractId: string }
   | { kind: 'periodic' }
   | { kind: 'fleetReview' };
 

@@ -51,6 +51,7 @@ export const MINOR_BODIES: readonly BodyDefinition[] = [
     kind: 'asteroid',
     parentId: 'sun',
     radiusKm: 262.7,
+    gm: 17.29,
     orbit: heliocentric({
       epochJd: 2_460_600.5,
       aAU: 2.3615,

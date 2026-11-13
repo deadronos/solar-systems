@@ -77,31 +77,14 @@ src/
   app/      Composition root
 ```
 
-**Data flow:** `SimDriver` (a `useFrame` hook that runs first) calls `sim.step(dt)`, then sets the
-_floating origin_ to the focused body. All scene components read float64 positions from the
-ephemeris, subtract the origin, and only then convert to float32 scene space. This keeps
-Phobos stable even when you are 30 AU from the Sun. The camera always orbits (0,0,0).
+The sim computes everything in float64 heliocentric km and the scene renders relative to a
+floating origin (the focused body), so small moons stay stable far from the Sun. The economy
+runs in a Web Worker and is mirrored into a read-only replica on the main thread; belt
+particles and trajectory dimming run on the GPU. If workers are unavailable the economy runs
+inline (also forced with `?economy=inline`), producing the same economy tick for tick.
 
-**Threads and GPU:** each kind of work runs where it fits best.
-
-| Work                                       | Where             | Why                                                                            |
-| ------------------------------------------ | ----------------- | ------------------------------------------------------------------------------ |
-| Logistics economy (AI, planning, markets)  | Web Worker        | Heavy, branchy and deterministic: needs float64 and exact replay, not the GPU. |
-| Belt particles (29.7k Kepler solves/frame) | GPU vertex shader | Independent per particle, presentation only.                                   |
-| Ship trajectories (flown/unflown dimming)  | GPU (shader)      | Uploaded once per plan; only two uniforms per frame.                           |
-| Ephemeris (~45 bodies), labels, camera     | Main thread       | Tiny, and needed on the CPU for labels and picking.                            |
-
-The app runs the economy in a worker (`Simulation({ economy: 'worker' })`): the worker owns the
-authoritative `LogisticsWorld` and posts deltas (entity tables in full — ~50 KB — plus new
-events and chart samples) up to 20×/s; the main thread applies them to a read-only replica that
-the UI and map read exactly as before. The clock may lead the replica by a few frames
-(~0.25 s of simulated time). If workers are unavailable or the worker fails to start, the
-economy runs on the main thread instead (also forced with `?economy=inline`); tests and Node use
-the inline backend. Both produce the same economy, tick for tick (`sync/sync.test.ts`).
-
-**Extending:** add a body by appending a `BodyDefinition` to `src/sim/data/*`, with optional
-styling in `render/appearance.ts`. Add a belt by appending a `BeltDefinition` to
-`sim/belts/belts.ts`. The sim runs without a browser (see `src/sim/sim.test.ts`).
+Detailed architecture, conventions and extension guides (adding bodies, belts, events, commands,
+controllers) live in [`docs/agents/`](docs/agents/); start from [AGENTS.md](AGENTS.md).
 
 ## Accuracy notes
 
