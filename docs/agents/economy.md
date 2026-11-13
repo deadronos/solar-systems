@@ -73,8 +73,9 @@ counters, named RNG states, scheduled actions, event hash and histories, stats a
 In the snapshot, `treasury: null` represents the unlimited deep-market treasury.
 
 The snapshot API supports standard phase wiring with built-in AI or controllers disabled.
-It rejects replica state and custom controllers. The application does not yet save snapshots
-or use them for worker recovery.
+It rejects replica state, extra tick phases and custom controllers. External event listeners
+are runtime wiring. Attach observers again after restoring, and keep their callbacks free of
+world mutations for deterministic continuation.
 
 ## Events
 

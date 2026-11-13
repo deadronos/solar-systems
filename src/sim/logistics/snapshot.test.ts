@@ -79,3 +79,11 @@ it('rejects snapshots from a world that has received replica state', () => {
   world.setReplicaJd(START_JD + 1);
   expect(() => snapshotWorld(world)).toThrow(/replica/i);
 });
+
+it('rejects snapshots from a world with an extra tick phase', () => {
+  const world = createWorld(DEFAULT_SCENARIO, eph(), { controllers: true });
+  world.addPhase('custom', (w) => {
+    w.nextId('custom');
+  });
+  expect(() => snapshotWorld(world)).toThrow(/phase/i);
+});

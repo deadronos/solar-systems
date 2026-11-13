@@ -27,6 +27,7 @@ interface WorldRuntime {
   stats: StatsRecorder;
   pending: Map<string, WakeReason[]> | null;
   customControllers: boolean;
+  phaseCount: number;
 }
 
 const runtimes = new WeakMap<LogisticsWorld, WorldRuntime>();
@@ -62,7 +63,12 @@ export function createWorld(
   const pending = ctl
     ? installControllers(world, typeof ctl === 'function' ? ctl : undefined)
     : null;
-  runtimes.set(world, { stats, pending, customControllers: typeof ctl === 'function' });
+  runtimes.set(world, {
+    stats,
+    pending,
+    customControllers: typeof ctl === 'function',
+    phaseCount: world.phaseCount,
+  });
   return world;
 }
 
@@ -82,6 +88,9 @@ export function snapshotWorld(world: LogisticsWorld): WorldSnapshot {
   const runtime = runtimes.get(world);
   if (!runtime || world.stats !== runtime.stats) {
     throw new Error('Snapshots require the standard createWorld runtime');
+  }
+  if (runtime.phaseCount !== world.phaseCount) {
+    throw new Error('Snapshots require the standard createWorld phases');
   }
   if (runtime.customControllers || (!runtime.pending && world.controllers.size > 0)) {
     throw new Error('Snapshots support only the default controller runner');

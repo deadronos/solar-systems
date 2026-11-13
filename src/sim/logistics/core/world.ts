@@ -237,6 +237,10 @@ export class LogisticsWorld {
     return r;
   }
 
+  get phaseCount(): number {
+    return this.#phases.length;
+  }
+
   addPhase(name: string, fn: Phase<LogisticsWorld>): void {
     this.#phases.push({ name, fn });
   }
