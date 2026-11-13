@@ -21,7 +21,7 @@ import { EventLog } from './events.ts';
 import type { CompanyController } from '../controllers/types.ts';
 import type { StatsRecorder } from '../economy/stats.ts';
 import { NavContext } from '../navigation/planner.ts';
-import { applyCommand, type Command } from './commands.ts';
+import { applyCommands, type Command } from './commands.ts';
 import { Scheduler } from './scheduler.ts';
 import { JD_EPSILON, TICK_DAYS } from './time.ts';
 
@@ -137,9 +137,12 @@ export class LogisticsWorld {
     this.controllers.set(companyId, controller);
   }
 
-  /** Apply commands from a company's controller in order. Returns per-command success. */
+  /**
+   * Apply commands from a company's controller in order; a ship's later commands are skipped
+   * once one of its commands is rejected (see `applyCommands`). Returns per-command success.
+   */
   issue(companyId: string, cmds: Command[]): boolean[] {
-    return cmds.map((c) => applyCommand(this, companyId, c));
+    return applyCommands(this, companyId, cmds);
   }
 
   get constants() {
@@ -229,6 +232,7 @@ function createSettlement(def: SettlementDef, world: LogisticsWorld): Settlement
     satisfaction: { survival: 1, basic: 1, comfort: 1 },
     inShortage: false,
     orderEscalation: {},
+    committed: 0,
     lastMilestone: Math.floor(def.population / 10_000),
   };
 }

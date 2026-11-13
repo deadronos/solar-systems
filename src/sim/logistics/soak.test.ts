@@ -5,6 +5,7 @@ import { Ephemeris } from '../world/ephemeris.ts';
 import { START_JD } from './core/time.ts';
 import { createWorld } from './createWorld.ts';
 import { DEFAULT_SCENARIO } from './data/scenario.ts';
+import { outstanding } from './economy/treasury.ts';
 
 const eph = () => new Ephemeris(DEFAULT_CATALOG);
 
@@ -42,6 +43,15 @@ describe('20-year soak', () => {
             expect(e.price).toBeLessThanOrEqual(base * c.priceClampMax + 1e-6);
           }
           expect(Number.isFinite(s.population) && s.population >= 0).toBe(true);
+          // Money promised to contracts is reserved, so paying them never overdraws.
+          expect(s.treasury, `${s.id} treasury`).toBeGreaterThanOrEqual(-1e-6);
+          const owed = [...w.contracts.values()]
+            .filter(
+              (c) => c.settlementId === s.id && c.status !== 'completed' && c.status !== 'expired',
+            )
+            .reduce((a, c) => a + outstanding(c), 0);
+          expect(s.committed, `${s.id} committed`).toBeCloseTo(owed, 0);
+          expect(s.committed).toBeLessThanOrEqual(s.treasury + 1e-6);
           if (s.satisfaction.survival < c.emigrationThreshold) {
             if (!starvingSince.has(s.id)) starvingSince.set(s.id, w.jd);
             const d = w.jd - starvingSince.get(s.id)!;

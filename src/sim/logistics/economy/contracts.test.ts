@@ -5,6 +5,8 @@ import { START_JD } from '../core/time.ts';
 import { createWorld } from '../createWorld.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { SETTLEMENTS } from '../data/settlements.ts';
+import { expireContract } from './contracts.ts';
+import { availableFunds, outstanding } from './treasury.ts';
 import type { CompanyDef, ScenarioConfig, SettlementDef } from './types.ts';
 
 const eph = new Ephemeris(DEFAULT_CATALOG);
@@ -37,6 +39,12 @@ const starve = (w: ReturnType<typeof createWorld>, id = 'col') => {
   return w;
 };
 
+/** Sum owed on a settlement's live contracts (what `committed` must equal). */
+const promised = (w: ReturnType<typeof createWorld>, id = 'col') =>
+  [...w.contracts.values()]
+    .filter((c) => c.settlementId === id && c.status !== 'completed' && c.status !== 'expired')
+    .reduce((a, c) => a + outstanding(c), 0);
+
 const open = (w: ReturnType<typeof createWorld>, good: string) =>
   [...w.contracts.values()].filter((c) => c.good === good && c.status === 'open');
 
@@ -55,7 +63,71 @@ describe('contracts', () => {
     expect(open(w, 'food').reduce((a, c) => a + c.qty, 0)).toBe(covered);
   });
 
-  it('chooses freight from a cheap nearby source and pays the source up front', () => {
+  it('chooses freight from a cheap nearby source, reserving goods and funds until loading', () => {
+    const farm = colony({
+      id: 'farm',
+      name: 'Farm',
+      site: { bodyId: 'phobos', kind: 'surface' },
+      population: 100,
+      facilities: [{ recipeId: 'grow_food', maxRatePerDay: 50 }],
+      initialStock: { water: 1e6, oxygen: 1e5, food: 50_000 },
+    });
+    const company: CompanyDef = {
+      id: 't',
+      name: 'T',
+      color: '#fff',
+      personalityId: 'bulk',
+      cash: 1e9,
+      ships: [{ classId: 'chem-hauler', siteId: 'farm', name: 'x' }],
+    };
+    const w = starve(createWorld(scenario([earth, colony(), farm], [company]), eph));
+    const buyer = w.settlements.get('col')!;
+    const pickup = w.settlements.get('farm')!;
+    const farmFood0 = pickup.market.food.stock;
+    w.advanceTo(START_JD + 1);
+    const c = open(w, 'food')[0]!;
+    expect(c.kind).toBe('freight');
+    expect(c.pickupSettlementId).toBe('farm');
+    // Goods are reserved at the pickup; the buyer's escrow and fee are committed, not paid.
+    expect(pickup.market.food.stock).toBeLessThan(farmFood0);
+    expect(buyer.committed).toBeCloseTo(promised(w), 3);
+    expect(buyer.committed).toBeGreaterThanOrEqual(c.escrowCost + c.reward);
+    const committed = buyer.committed;
+    const buyerCash = buyer.treasury;
+    const pickupCash = pickup.treasury;
+    const ship = [...w.ships.values()][0]!;
+    expect(
+      w.issue('t', [
+        { type: 'AcceptContract', contractId: c.id, shipId: ship.id },
+        { type: 'LoadContractCargo', contractId: c.id },
+      ]),
+    ).toEqual([true, true]);
+    // Loading pays the pickup from the buyer; only the fee stays committed.
+    expect(buyer.treasury).toBeCloseTo(buyerCash - c.escrowCost, 3);
+    expect(pickup.treasury).toBeCloseTo(pickupCash + c.escrowCost, 3);
+    expect(buyer.committed).toBeCloseTo(committed - c.escrowCost, 3);
+    expect(buyer.committed).toBeCloseTo(promised(w), 3);
+  });
+
+  it('never commits more than the treasury holds and keeps committed funds in reserve', () => {
+    // Short of several goods at once, with little money: every order competes for it.
+    const w = createWorld(scenario([earth, colony({ treasury: 30_000_000 })]), eph);
+    const col = w.settlements.get('col')!;
+    for (const g of ['food', 'medicine', 'consumer_goods', 'electronics'] as const) {
+      col.market[g].stock = 0;
+    }
+    w.advanceTo(START_JD + 20);
+    const live = [...w.contracts.values()].filter(
+      (c) => c.settlementId === 'col' && c.status === 'open',
+    );
+    expect(live.length).toBeGreaterThan(1);
+    expect(col.committed).toBeCloseTo(promised(w), 3);
+    expect(col.committed).toBeLessThanOrEqual(col.treasury + 1e-6);
+    // The settlement won't buy from traders with money promised to its orders.
+    expect(availableFunds(col)).toBeCloseTo(col.treasury - col.committed, 3);
+  });
+
+  it('expiry releases the promise and returns reserved freight goods', () => {
     const farm = colony({
       id: 'farm',
       name: 'Farm',
@@ -65,12 +137,20 @@ describe('contracts', () => {
       initialStock: { water: 1e6, oxygen: 1e5, food: 50_000 },
     });
     const w = starve(createWorld(scenario([earth, colony(), farm]), eph));
-    const treasury0 = w.settlements.get('col')!.treasury;
     w.advanceTo(START_JD + 1);
     const c = open(w, 'food')[0]!;
-    expect(c.kind).toBe('freight');
-    expect(c.pickupSettlementId).toBe('farm');
-    expect(w.settlements.get('col')!.treasury).toBeLessThan(treasury0);
+    const buyer = w.settlements.get('col')!;
+    const pickup = w.settlements.get('farm')!;
+    const cash = { buyer: buyer.treasury, pickup: pickup.treasury };
+    const reserved = pickup.market.food.stock;
+    const committed = buyer.committed;
+    // Expire it now (other orders may post meanwhile if we advanced time).
+    expireContract(w, c.id);
+    expect(c.status).toBe('expired');
+    expect(buyer.committed).toBeCloseTo(committed - outstanding({ ...c, status: 'open' }), 3);
+    expect(pickup.market.food.stock).toBeCloseTo(reserved + c.qty, 6);
+    expect(buyer.treasury).toBe(cash.buyer);
+    expect(pickup.treasury).toBe(cash.pickup);
   });
 
   it('buys directly from a same-body neighbour without a ship', () => {
@@ -135,6 +215,9 @@ describe('contracts', () => {
     const ship = [...w.ships.values()][0]!;
     ship.cargo.food = c.qty;
     const cash = w.companies.get('t')!.cash;
+    const col = w.settlements.get('col')!;
+    const committed = col.committed;
+    const treasury = col.treasury;
     expect(
       w.issue('t', [
         { type: 'AcceptContract', contractId: c.id, shipId: ship.id },
@@ -143,5 +226,7 @@ describe('contracts', () => {
     ).toEqual([true, true]);
     expect(c.status).toBe('completed');
     expect(w.companies.get('t')!.cash).toBeCloseTo(cash + c.reward, 3);
+    expect(col.committed).toBeCloseTo(committed - c.reward, 3);
+    expect(col.treasury).toBeCloseTo(treasury - c.reward, 3);
   });
 });

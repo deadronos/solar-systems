@@ -34,16 +34,14 @@ export function priceFor(
 export const askPrice = (e: MarketEntry, c: EconomyConstants): number =>
   e.price * (1 + c.spread / 2);
 
-/** Price at which the settlement buys from traders; 0 if it can't pay for `qty` or has no use for it. */
-export function bidPrice(
-  e: MarketEntry,
-  c: EconomyConstants,
-  treasury: number,
-  qty: number,
-): number {
+/**
+ * Price at which the settlement buys from traders; 0 if it can't pay for `qty` or has no use
+ * for it. `funds` is the money it may spend (see `availableFunds`).
+ */
+export function bidPrice(e: MarketEntry, c: EconomyConstants, funds: number, qty: number): number {
   if (e.consumptionPerDay <= 0) return 0;
   const p = e.price * (1 - c.spread / 2);
-  return treasury >= p * qty ? p : 0;
+  return funds >= p * qty ? p : 0;
 }
 
 /** Tonnes the settlement is still willing to buy. */
