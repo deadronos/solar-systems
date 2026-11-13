@@ -41,7 +41,8 @@ src/
 ## One simulation object, mutable by design
 
 `App` creates a single `Simulation` (`economy: 'worker'`, the `DEFAULT_SCENARIO`) and provides it
-through `SimulationProvider`. Simulation objects are **mutable and long-lived**: the sim
+through `SimulationProvider`, which disposes it when the provider unmounts or the simulation
+instance changes. Simulation objects are **mutable and long-lived**: the sim
 updates them in place every frame. React code doesn't hold them in state. It reads them in
 `useFrame` (render) or polls them at a fixed rate (UI).
 

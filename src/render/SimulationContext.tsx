@@ -1,4 +1,4 @@
-import { createContext, use, useMemo, type ReactNode } from 'react';
+import { createContext, use, useEffect, useMemo, type ReactNode } from 'react';
 import { vec3, type Simulation, type Vec3 } from '../sim/index.ts';
 
 /** Per-frame render state shared between scene components (mutable, never triggers renders). */
@@ -17,6 +17,8 @@ interface SimulationContextValue {
 const SimulationContext = createContext<SimulationContextValue | null>(null);
 
 export function SimulationProvider({ sim, children }: { sim: Simulation; children: ReactNode }) {
+  useEffect(() => () => sim.dispose(), [sim]);
+
   // Frame object is stable per simulation instance.
   const value = useMemo<SimulationContextValue>(() => ({ sim, frame: frameFor(sim) }), [sim]);
   return <SimulationContext value={value}>{children}</SimulationContext>;

@@ -8,8 +8,9 @@ How tests are organised and which patterns to reuse. Read this before adding or 
 ## Basics
 
 - Vitest, `environment: 'node'`, colocated `*.test.ts` next to the code (one per area:
-  `core/core.test.ts`, `economy/contracts.test.ts`…). There's no DOM. React components are
-  tested with `renderToString` (`ui/logistics/inspectors/inspectors.test.tsx`).
+  `core/core.test.ts`, `economy/contracts.test.ts`…). React rendering can be tested with
+  `renderToString` (`ui/logistics/inspectors/inspectors.test.tsx`). The provider lifecycle
+  test uses `happy-dom` to mount and unmount a React root.
 - `pnpm test` runs everything in about 10 s. A three.js CJS deprecation warning in the output
   is expected noise.
 - Slow tests (multi-year runs) declare an explicit timeout: `it('…', { timeout: 180_000 }, …)`.
