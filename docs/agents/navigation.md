@@ -19,7 +19,8 @@ this before changing `src/sim/logistics/navigation/*` or ship classes.
 - `NavContext` (`world.nav`) holds the caches: per-pair porkchop grids (rebuilt every 120
   days), immediate-departure sweeps shared by estimates and plans at the exact transfer
   start date, and estimates. Sweep and estimate caches are cleared wholesale
-  past a size cap.
+  past a size cap. Snapshots carry the launch grids and cached estimates. The grid
+  start depends on past queries, so rebuilding it at restore time can change routes.
 
 ## Engine tiers (`ShipClass.tier`)
 

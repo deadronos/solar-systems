@@ -32,6 +32,16 @@ export interface StatsDelta {
 /** What a reader has already received, per series (see `StatsRecorder.delta`). */
 export type StatsCursor = Map<string, { version: number; length: number }>;
 
+export interface StatsState {
+  series: [string, Sample[]][];
+  versions: [string, number][];
+  todayVolume: number;
+  window: number[];
+  tradeVolume365: number;
+  flows: [string, number][];
+  lastDeparture: [string, string][];
+}
+
 export class StatsRecorder {
   #series = new Map<string, Sample[]>();
   /** Bumped whenever a series is downsampled (its earlier samples change). */
@@ -43,6 +53,29 @@ export class StatsRecorder {
   /** `${from}>${to}|${companyId}` → decayed tonnage. */
   readonly flows = new Map<string, number>();
   #lastDeparture = new Map<string, string>();
+
+  capture(): StatsState {
+    return {
+      series: [...this.#series],
+      versions: [...this.#versions],
+      todayVolume: this.#todayVolume,
+      window: this.#window,
+      tradeVolume365: this.tradeVolume365,
+      flows: [...this.flows],
+      lastDeparture: [...this.#lastDeparture],
+    };
+  }
+
+  restore(state: StatsState): void {
+    this.#series = new Map(state.series);
+    this.#versions = new Map(state.versions);
+    this.#todayVolume = state.todayVolume;
+    this.#window = state.window;
+    this.tradeVolume365 = state.tradeVolume365;
+    this.flows.clear();
+    for (const [key, volume] of state.flows) this.flows.set(key, volume);
+    this.#lastDeparture = new Map(state.lastDeparture);
+  }
 
   attach(world: LogisticsWorld): void {
     world.events.subscribe((e) => {

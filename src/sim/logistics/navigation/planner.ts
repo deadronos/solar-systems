@@ -40,6 +40,14 @@ export class PorkchopCache {
     this.#ctx = ctx;
   }
 
+  capture(): NavState['grids'] {
+    return [...this.#grids];
+  }
+
+  restore(grids: NavState['grids']): void {
+    this.#grids = new Map(grids);
+  }
+
   cells(fromBody: string, toBody: string, earliestJd: number): Cell[] {
     const key = `${fromBody}>${toBody}`;
     const g = this.#grids.get(key);
@@ -64,6 +72,11 @@ export class PorkchopCache {
   }
 }
 
+export interface NavState {
+  grids: [string, { start: number; cells: Cell[] }][];
+  estimates: [string, TripEstimate | null][];
+}
+
 /** Shared navigation context: ephemeris access plus caches. */
 export class NavContext {
   readonly eph: Ephemeris;
@@ -76,6 +89,16 @@ export class NavContext {
     this.eph = eph;
     this.balance = Object.freeze({ ...balance });
     this.porkchop = new PorkchopCache(this);
+  }
+
+  capture(): NavState {
+    return { grids: this.porkchop.capture(), estimates: [...this.#estimates] };
+  }
+
+  restore(state: NavState): void {
+    this.porkchop.restore(state.grids);
+    this.#estimates = new Map(state.estimates);
+    this.#sweeps.clear();
   }
 
   /** The body orbiting the Sun that a body belongs to (itself for planets/asteroids). */

@@ -16,6 +16,13 @@ type Job =
   | { kind: 'trade'; good: GoodId; qty: number; sourceId: string; destId: string; buyPrice: number }
   | { kind: 'contract'; contractId: string };
 
+export interface AiState {
+  jobs: [string, Job][];
+  nextLook: [string, number][];
+  lastBusy: [string, number][];
+  lastFleetReview: number | null;
+}
+
 interface Candidate {
   score: number;
   /** Built only for the chosen candidate (formatting every option was measurable). */
@@ -51,6 +58,22 @@ export class AiBrain implements CompanyController {
   #nextLook = new Map<string, number>();
   #lastBusy = new Map<string, number>();
   #lastFleetReview: number | null = null;
+
+  capture(): AiState {
+    return {
+      jobs: [...this.#jobs],
+      nextLook: [...this.#nextLook],
+      lastBusy: [...this.#lastBusy],
+      lastFleetReview: this.#lastFleetReview,
+    };
+  }
+
+  restore(state: AiState): void {
+    this.#jobs = new Map(state.jobs);
+    this.#nextLook = new Map(state.nextLook);
+    this.#lastBusy = new Map(state.lastBusy);
+    this.#lastFleetReview = state.lastFleetReview;
+  }
 
   decide(view: CompanyView, wake: WakeReason[]): Command[] {
     const cmds: Command[] = [];

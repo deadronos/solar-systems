@@ -1,6 +1,8 @@
 /** Small deterministic PRNG (mulberry32) so belts are reproducible across reloads. */
 export interface Rng {
   next(): number;
+  /** Current Mulberry32 state, which can seed the next draw after restore. */
+  state(): number;
   uniform(min: number, max: number): number;
   gaussian(mean?: number, sigma?: number): number;
   rayleigh(sigma: number): number;
@@ -17,6 +19,7 @@ export function createRng(seed: number): Rng {
   };
   return {
     next,
+    state: () => s,
     uniform: (min, max) => min + (max - min) * next(),
     gaussian: (mean = 0, sigma = 1) => {
       const u = 1 - next();

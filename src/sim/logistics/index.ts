@@ -9,7 +9,7 @@ export type * from './navigation/plan.ts';
 export { DEFAULT_SCENARIO } from './data/scenario.ts';
 export { evaluatePlan } from './navigation/plan.ts';
 export { NavContext, estimateTrip, planTrip, type TripEstimate } from './navigation/planner.ts';
-export { createWorld } from './createWorld.ts';
+export { createWorld, restoreWorld, snapshotWorld, type WorldSnapshot } from './createWorld.ts';
 export { askPrice, bidPrice, maxBuyQty, priceFor } from './economy/markets.ts';
 export { applyCommand, cargoMass, removeShip, type Command } from './core/commands.ts';
 export { inboundQty } from './economy/contracts.ts';

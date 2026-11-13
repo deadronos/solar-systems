@@ -3,7 +3,7 @@
 The economy's world model, tick loop, determinism rules, markets, contracts and money. Read
 this before changing anything in `src/sim/logistics/{core,economy,data}` or `createWorld.ts`.
 
-**Source of truth:** `src/sim/logistics/core/{world,scheduler,events,commands,time}.ts`,
+**Source of truth:** `src/sim/logistics/core/{world,scheduler,actions,events,commands,time}.ts`,
 `src/sim/logistics/createWorld.ts`, `src/sim/logistics/economy/*.ts`,
 `src/sim/logistics/data/*.ts`.
 
@@ -44,7 +44,7 @@ pruning, numerical tolerances and cache limits remain implementation constants.
 Fixed **6-hour ticks** (`TICK_DAYS = 0.25`), never skipped or resized. `advanceTo(jd)`:
 
 1. Run scheduled actions due before the tick's end, in (jd, insertion) order (`Scheduler`, a
-   binary heap).
+   binary heap). A discriminated action record identifies the domain operation and its arguments.
 2. Advance the clock, then run the phases installed by `createWorld`, in this order:
    **population → production → markets → contracts → ships → companies → stats → controllers**.
 
@@ -63,6 +63,18 @@ The same seed must produce the identical event log, and `events.hash()` checks i
   render-updated `position()`.
 - Schedule future work with `world.schedule(jd, action)`; don't keep timers in phases.
 - No wall clock, no `Math.random`. Floats are fine; evaluation order must be stable.
+
+## Snapshots
+
+Use `snapshotWorld(world)` between ticks to capture a detached versioned data object. After a
+JSON round trip, `restoreWorld(snapshot, ephemeris)` resumes a standard `createWorld` economy
+using the same ephemeris catalog. The snapshot includes the scenario, entity tables, ID
+counters, named RNG states, scheduled actions, event hash and histories, stats and AI state.
+In the snapshot, `treasury: null` represents the unlimited deep-market treasury.
+
+The snapshot API supports standard phase wiring with built-in AI or controllers disabled.
+It rejects replica state and custom controllers. The application does not yet save snapshots
+or use them for worker recovery.
 
 ## Events
 

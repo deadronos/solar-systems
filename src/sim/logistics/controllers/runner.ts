@@ -14,7 +14,7 @@ const PERIODIC_DAYS = 1;
 export function installControllers(
   world: LogisticsWorld,
   factory: (companyId: string) => CompanyController = () => new AiBrain(),
-): void {
+): Map<string, WakeReason[]> {
   for (const id of sortedIds(world.companies)) world.setController(id, factory(id));
   const pending = new Map<string, WakeReason[]>();
   const push = (companyId: string, r: WakeReason) => {
@@ -56,4 +56,5 @@ export function installControllers(
       w.issue(id, controller.decide(createCompanyView(w, id), reasons));
     }
   });
+  return pending;
 }

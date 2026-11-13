@@ -85,7 +85,7 @@ export function removeShip(world: LogisticsWorld, ship: Ship): void {
   });
 }
 
-function arrive(world: LogisticsWorld, shipId: string): void {
+export function arrive(world: LogisticsWorld, shipId: string): void {
   const ship = world.ships.get(shipId);
   if (!ship || !ship.plan) return;
   const dest = ship.plan.toSiteId;
@@ -121,7 +121,17 @@ function arrive(world: LogisticsWorld, shipId: string): void {
   }
 }
 
-function depart(world: LogisticsWorld, shipId: string): void {
+export function deliverShip(world: LogisticsWorld, shipId: string, siteId: string): void {
+  const ship = world.ships.get(shipId);
+  if (!ship || ship.state !== 'building') return;
+  ship.state = 'docked';
+  ship.intent = 'Idle';
+  const ids = { shipId, companyId: ship.companyId, settlementId: siteId };
+  world.events.append(world.jd, { type: 'ShipDelivered', ...ids });
+  world.events.append(world.jd, { type: 'ShipIdle', ...ids });
+}
+
+export function depart(world: LogisticsWorld, shipId: string): void {
   const ship = world.ships.get(shipId);
   if (!ship || !ship.plan || ship.state !== 'waiting') return;
   const from = ship.siteId ?? undefined;
@@ -191,8 +201,8 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       ship.plan = plan;
       ship.state = 'waiting';
       if (plan.departJd <= world.jd) depart(world, ship.id);
-      else world.schedule(plan.departJd, (w) => depart(w, ship.id));
-      world.schedule(plan.arriveJd, (w) => arrive(w, ship.id));
+      else world.schedule(plan.departJd, { kind: 'depart', shipId: ship.id });
+      world.schedule(plan.arriveJd, { kind: 'arrive', shipId: ship.id });
       return;
     }
     case 'BuyCargo': {
@@ -366,23 +376,10 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
         classId: cls.id,
         price: cls.price,
       });
-      world.schedule(world.jd + cls.buildDays, (w) => {
-        const s = w.ships.get(ship.id);
-        if (!s || s.state !== 'building') return;
-        s.state = 'docked';
-        s.intent = 'Idle';
-        w.events.append(w.jd, {
-          type: 'ShipDelivered',
-          shipId: s.id,
-          companyId: s.companyId,
-          settlementId: yard.id,
-        });
-        w.events.append(w.jd, {
-          type: 'ShipIdle',
-          shipId: s.id,
-          companyId: s.companyId,
-          settlementId: yard.id,
-        });
+      world.schedule(world.jd + cls.buildDays, {
+        kind: 'deliverShip',
+        shipId: ship.id,
+        siteId: yard.id,
       });
       return;
     }

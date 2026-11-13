@@ -71,7 +71,8 @@ To add a command: add a union member to `Command`, a `case` in `apply()` that va
     `targetUtilisation`.
   - Sells the worst idle ship when in distress or when idle and poor.
 - Memory (`#jobs`, `#nextLook`, `#lastBusy`) is **advisory**. The world is the truth: a ship's
-  `contractId` overrides remembered jobs. Memory is not serialised.
+  `contractId` overrides remembered jobs. Snapshots preserve that memory, the last fleet
+  review date and the runner's queued wake reasons for exact continuation.
 
 ## Known gaps (documented, not drift)
 

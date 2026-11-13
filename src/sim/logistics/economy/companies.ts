@@ -1,5 +1,6 @@
 import { removeShip } from '../core/commands.ts';
-import { sortedIds, type LogisticsWorld } from '../core/world.ts';
+import { sortedIds } from '../core/sortedIds.ts';
+import type { LogisticsWorld } from '../core/world.ts';
 import { release } from './treasury.ts';
 import type { Company, ShipClass } from './types.ts';
 
@@ -81,7 +82,7 @@ function bankrupt(world: LogisticsWorld, company: Company): void {
       removeShip(world, ship);
     }
   }
-  world.schedule(world.jd + world.constants.companies.entrantDelayDays, (w) => spawnEntrant(w));
+  world.schedule(world.jd + world.constants.companies.entrantDelayDays, { kind: 'spawnEntrant' });
 }
 
 /** A new company enters the market with seed capital and one ship at a shipyard. */

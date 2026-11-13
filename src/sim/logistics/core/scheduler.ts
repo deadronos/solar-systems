@@ -4,10 +4,24 @@ interface Entry<T> {
   item: T;
 }
 
+export interface SchedulerState<T> {
+  heap: Entry<T>[];
+  nextSeq: number;
+}
+
 /** Binary min-heap ordered by (jd, insertion order). Deterministic for equal times. */
 export class Scheduler<T> {
   #heap: Entry<T>[] = [];
   #seq = 0;
+
+  capture(): SchedulerState<T> {
+    return { heap: this.#heap, nextSeq: this.#seq };
+  }
+
+  restore(state: SchedulerState<T>): void {
+    this.#heap = state.heap;
+    this.#seq = state.nextSeq;
+  }
 
   get size(): number {
     return this.#heap.length;

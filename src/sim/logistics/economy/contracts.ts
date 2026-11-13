@@ -1,5 +1,6 @@
 import { TICK_DAYS } from '../core/time.ts';
-import { sortedIds, type LogisticsWorld } from '../core/world.ts';
+import { sortedIds } from '../core/sortedIds.ts';
+import type { LogisticsWorld } from '../core/world.ts';
 import { askPrice, spareStock } from './markets.ts';
 import { availableFunds, commit, outstanding, release } from './treasury.ts';
 import { GOOD_IDS, type Contract, type GoodId, type Settlement } from './types.ts';
@@ -243,7 +244,7 @@ function addContract(
     kind: contract.kind,
     ...(contract.pickupSettlementId ? { pickupSettlementId: contract.pickupSettlementId } : {}),
   });
-  world.schedule(contract.deadlineJd, (w) => expireContract(w, contract.id));
+  world.schedule(contract.deadlineJd, { kind: 'expireContract', contractId: contract.id });
 }
 
 /** Deadline handler: open → expired; accepted/loaded → expired with a carrier penalty. */
