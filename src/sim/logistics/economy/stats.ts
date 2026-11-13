@@ -22,8 +22,20 @@ const FLOW_DECAY_DAYS = 365;
  * Daily time series for charts plus rolling trade flows between settlements, fed by the
  * event log. Pure observer: never mutates the world.
  */
+/** New chart samples since the last delta: appended, or the whole series when `from` is 0. */
+export interface StatsDelta {
+  series: { key: string; from: number; samples: Sample[] }[];
+  flows: [string, number][];
+  tradeVolume365: number;
+}
+
+/** What a reader has already received, per series (see `StatsRecorder.delta`). */
+export type StatsCursor = Map<string, { version: number; length: number }>;
+
 export class StatsRecorder {
   #series = new Map<string, Sample[]>();
+  /** Bumped whenever a series is downsampled (its earlier samples change). */
+  #versions = new Map<string, number>();
   #todayVolume = 0;
   #window: number[] = [];
   /** Tonnes sold/delivered over the last 365 days. */
@@ -64,6 +76,7 @@ export class StatsRecorder {
       const kept = s.filter((_, i) => i % 2 === (s!.length - 1) % 2);
       s.length = 0;
       s.push(...kept);
+      this.#versions.set(k, (this.#versions.get(k) ?? 0) + 1);
     }
   }
 
@@ -96,5 +109,31 @@ export class StatsRecorder {
 
   series(key: StatKey, id: string): readonly Sample[] {
     return this.#series.get(`${key}|${id}`) ?? [];
+  }
+
+  /** Changes since `cursor` (which is advanced), for mirroring into another recorder. */
+  delta(cursor: StatsCursor): StatsDelta {
+    const series: StatsDelta['series'] = [];
+    for (const [key, s] of this.#series) {
+      const version = this.#versions.get(key) ?? 0;
+      const seen = cursor.get(key);
+      const from = seen && seen.version === version ? seen.length : 0;
+      if (from < s.length) series.push({ key, from, samples: s.slice(from) });
+      cursor.set(key, { version, length: s.length });
+    }
+    return { series, flows: [...this.flows], tradeVolume365: this.tradeVolume365 };
+  }
+
+  /** Apply a delta produced by another recorder's `delta`. */
+  applyDelta(d: StatsDelta): void {
+    for (const { key, from, samples } of d.series) {
+      const s = from === 0 ? [] : (this.#series.get(key) ?? []);
+      s.length = from;
+      for (const x of samples) s.push(x);
+      this.#series.set(key, s);
+    }
+    this.flows.clear();
+    for (const [k, v] of d.flows) this.flows.set(k, v);
+    this.tradeVolume365 = d.tradeVolume365;
   }
 }

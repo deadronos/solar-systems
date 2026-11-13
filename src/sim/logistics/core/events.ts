@@ -173,16 +173,41 @@ export class EventLog {
   append(jd: number, payload: EventPayload): LogisticsEvent {
     const e = { ...payload, seq: this.#count++, jd } as LogisticsEvent;
     this.#hash = fnv1a(this.#hash, JSON.stringify(e));
+    this.#index(e);
+    for (const l of this.#listeners) l(e);
+    return e;
+  }
+
+  #index(e: LogisticsEvent): void {
     this.#ring.push(e);
     if (this.#ring.length > RING_CAPACITY) this.#ring.shift();
-    for (const id of eventEntityIds(payload)) {
+    for (const id of eventEntityIds(e)) {
       let list = this.#byEntity.get(id);
       if (!list) this.#byEntity.set(id, (list = []));
       list.push(e);
       if (list.length > PER_ENTITY_CAPACITY) list.shift();
     }
-    for (const l of this.#listeners) l(e);
-    return e;
+  }
+
+  /** Events with `seq >= fromCount` that are still in the ring (oldest first). */
+  since(fromCount: number): LogisticsEvent[] {
+    const start = Math.max(0, this.#ring.length - (this.#count - fromCount));
+    return this.#ring.slice(start);
+  }
+
+  /** Running hash state, for mirroring the log elsewhere (see `ingest`). */
+  get hashState(): number {
+    return this.#hash;
+  }
+
+  /**
+   * Mirror events appended to another log (e.g. in a worker): index them for `recent` and
+   * `forEntity` and adopt that log's count and hash. Listeners are not notified.
+   */
+  ingest(events: readonly LogisticsEvent[], count: number, hashState: number): void {
+    for (const e of events) if (e.seq >= this.#count) this.#index(e);
+    this.#count = count;
+    this.#hash = hashState;
   }
 
   /** Most recent events first. */

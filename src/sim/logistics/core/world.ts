@@ -150,6 +150,14 @@ export class LogisticsWorld {
     return this.#jd;
   }
 
+  /**
+   * Set the clock of a replica world that mirrors one running elsewhere (see
+   * `logistics/sync`). Never call this on a world that is advanced with `advanceTo`.
+   */
+  setReplicaJd(jd: number): void {
+    this.#jd = jd;
+  }
+
   /** Named, independently seeded RNG stream (adding a stream never perturbs others). */
   rng(name: string): Rng {
     let r = this.#rngs.get(name);
