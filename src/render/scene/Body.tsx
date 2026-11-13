@@ -9,6 +9,7 @@ import {
   type Sprite,
 } from 'three';
 import type { BodyDefinition } from '../../sim/index.ts';
+import { focusBody } from '../../state/actions.ts';
 import { useViewStore } from '../../state/viewStore.ts';
 import { appearanceFor } from '../appearance.ts';
 import { eclipticDirToScene, pixelsPerUnit, relativeToScene, UNITS_PER_KM } from '../coords.ts';
@@ -32,7 +33,6 @@ export function Body({ def }: { def: BodyDefinition }) {
   const frame = useRenderFrame();
   const camera = useThree((s) => s.camera) as PerspectiveCamera;
   const size = useThree((s) => s.size);
-  const setFocus = useViewStore((s) => s.setFocus);
 
   const group = useRef<Group>(null);
   const body = useRef<Group>(null);
@@ -90,7 +90,7 @@ export function Body({ def }: { def: BodyDefinition }) {
 
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
-    setFocus(def.id);
+    focusBody(def.id);
   };
 
   return (

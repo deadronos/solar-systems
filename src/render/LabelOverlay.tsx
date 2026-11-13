@@ -1,5 +1,5 @@
 import type { BodyDefinition } from '../sim/index.ts';
-import { useViewStore } from '../state/viewStore.ts';
+import { focusBody } from '../state/actions.ts';
 import { useRenderFrame, useSimulation } from './SimulationContext.tsx';
 
 /**
@@ -20,7 +20,6 @@ export function LabelOverlay() {
 
 function Label({ def }: { def: BodyDefinition }) {
   const frame = useRenderFrame();
-  const setFocus = useViewStore((s) => s.setFocus);
   return (
     <button
       type="button"
@@ -33,7 +32,7 @@ function Label({ def }: { def: BodyDefinition }) {
       }}
       className={`body-label body-label--${def.kind}`}
       style={{ visibility: 'hidden' }}
-      onClick={() => setFocus(def.id)}
+      onClick={() => focusBody(def.id)}
     >
       {def.name}
     </button>
