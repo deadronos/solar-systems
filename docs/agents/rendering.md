@@ -34,7 +34,8 @@ Scene structure and the patterns every scene component follows. Read this before
 - **Positions:** `relativeToScene(eph.position(id), frame.origin, obj.position)`. Groups are
   placed relative to the origin. Geometry stays origin-free (local to its parent or anchor).
 - **Sizes:** `pixelsPerUnit(camera, distance, size.height)` drives the minimum on-screen body
-  size (`minPixelRadius`), orbit hiding below 10 px, and label decluttering.
+  size (`minPixelRadius`), the orbit fade-out (20 → 8 px semi-major axis), and label
+  decluttering.
 
 ## Resources
 
@@ -43,6 +44,12 @@ Scene structure and the patterns every scene component follows. Read this before
   you build yourself.
 - Textures are **procedural** (`textures.ts`, cached per body): the app ships no binary
   assets. Styling per body lives in `appearance.ts`. Keep visual data out of the sim catalog.
+- The **starfield** is the Yale Bright Star Catalogue (public domain, ~9,100 stars to V ≈ 6.5),
+  packed 6 bytes per star into the generated `render/data/brightStars.ts` by
+  `scripts/build-stars.mjs` (regenerate from the catalogue file; don't edit by hand).
+  `render/stars.ts` decodes it to ecliptic directions, magnitudes and B−V tints, and builds the
+  procedural Milky Way cloud in galactic coordinates. Both are points on a camera-following sky
+  sphere with log-depth-aware shaders, so planets still occlude them.
 - Preallocate fixed-size buffers (`SEGMENTS + 1`, `SAMPLES`, `MAX_FLOWS`). Update with
   `attr.needsUpdate = true` instead of recreating geometry.
 
@@ -56,6 +63,11 @@ Scene structure and the patterns every scene component follows. Read this before
   Trajectories upload positions relative to an anchor sample and dim by `aTime` (days after
   departure) against `uNow`.
 - If GLSL has a JS mirror (`solveKeplerFixed`), keep the two in sync. A test checks the mirror.
+- Orbit lines (`OrbitPath`) are `Line2`/`LineMaterial` fat lines (1.5 CSS px; set
+  `material.resolution` to the canvas size each frame). Each segment endpoint carries its
+  eccentric anomaly as a fraction of a turn, and `uBodyPhase` (from
+  `Ephemeris.eccentricAnomaly`) makes the line brightest just behind the body. Rebuilds write
+  the interleaved `instanceStart` buffer in place.
 
 ## DOM labels and markers
 
@@ -77,4 +89,4 @@ over 1.4 s.
 ## Known gaps
 
 - One DOM marker and one `Line` per ship doesn't scale to large fleets (#27).
-- Visual polish backlog (atmospheres, real stars, orbit fades) is in umbrella #9.
+- Visual polish backlog (atmospheres, constellation lines, trajectory fades) is in umbrella #9.
