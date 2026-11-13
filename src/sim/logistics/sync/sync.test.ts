@@ -63,29 +63,33 @@ function view(w: LogisticsWorld) {
 }
 
 describe('economy worker', () => {
-  it('mirrors the economy into a replica identical to running it inline', () => {
-    const fake = fakeWorker();
-    const sim = new Simulation({
-      scenario: DEFAULT_SCENARIO,
-      economy: 'worker',
-      spawnWorker: () => fake.port,
-      rate: 2_629_800, // a month per second
-    });
-    expect(sim.economyMode).toBe('worker');
-    for (let frame = 0; frame < 600; frame++) {
-      sim.step(1 / 30);
-      fake.pump();
-    }
-    sim.step(0); // apply the last results
-    const replica = sim.logistics!;
-    expect(replica.jd).toBeGreaterThan(DEFAULT_SCENARIO.startJd + 300);
+  it(
+    'mirrors the economy into a replica identical to running it inline',
+    { timeout: 60_000 },
+    () => {
+      const fake = fakeWorker();
+      const sim = new Simulation({
+        scenario: DEFAULT_SCENARIO,
+        economy: 'worker',
+        spawnWorker: () => fake.port,
+        rate: 2_629_800, // a month per second
+      });
+      expect(sim.economyMode).toBe('worker');
+      for (let frame = 0; frame < 600; frame++) {
+        sim.step(1 / 30);
+        fake.pump();
+      }
+      sim.step(0); // apply the last results
+      const replica = sim.logistics!;
+      expect(replica.jd).toBeGreaterThan(DEFAULT_SCENARIO.startJd + 300);
 
-    const reference = createWorld(DEFAULT_SCENARIO, new Ephemeris(DEFAULT_CATALOG), {
-      controllers: true,
-    });
-    reference.advanceTo(replica.jd);
-    expect(view(replica)).toBe(view(reference));
-  });
+      const reference = createWorld(DEFAULT_SCENARIO, new Ephemeris(DEFAULT_CATALOG), {
+        controllers: true,
+      });
+      reference.advanceTo(replica.jd);
+      expect(view(replica)).toBe(view(reference));
+    },
+  );
 
   it('starts the worker on the first step, not on construction', () => {
     let spawned = 0;

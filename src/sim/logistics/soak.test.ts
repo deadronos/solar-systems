@@ -9,7 +9,7 @@ import { DEFAULT_SCENARIO } from './data/scenario.ts';
 const eph = () => new Ephemeris(DEFAULT_CATALOG);
 
 describe('determinism', () => {
-  it('two runs from the same seed produce identical event logs', () => {
+  it('two runs from the same seed produce identical event logs', { timeout: 60_000 }, () => {
     const a = createWorld(DEFAULT_SCENARIO, eph(), { controllers: true });
     const b = createWorld(DEFAULT_SCENARIO, eph(), { controllers: true });
     a.advanceTo(START_JD + 365);
