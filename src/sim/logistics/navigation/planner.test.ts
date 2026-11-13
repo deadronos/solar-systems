@@ -114,6 +114,30 @@ describe('planner', () => {
     ).toBeNull();
   });
 
+  it.each([
+    ['ion-clipper', 'gateway', 'mars-colony'],
+    ['ion-clipper', 'luna-base', 'ceres-colony'],
+    ['chem-tug', 'gateway', 'luna-base'],
+    ['fusion-freighter', 'gateway', 'mars-colony'],
+    ['am-courier', 'gateway', 'ceres-colony'],
+    ['jump-clipper', 'mars-colony', 'psyche-mines'],
+  ])('matches cached %s estimates to plans from %s to %s', (classId, fromId, toId) => {
+    const nav = new NavContext(eph);
+    const shipClass = cls(classId);
+    const from = site(fromId);
+    const to = site(toId);
+
+    // Warm the cache, then ask again within the old two-day bucket at a fractional JD.
+    expect(nav.estimateCached(shipClass, from, to, START_JD)).not.toBeNull();
+    const jd = START_JD + 0.25;
+    const estimate = nav.estimateCached(shipClass, from, to, jd);
+    const plan = planTrip(shipClass, from, to, jd, nav);
+
+    expect(estimate).not.toBeNull();
+    expect(estimate!.departJd).toBeGreaterThanOrEqual(jd);
+    expect(plan).toMatchObject(estimate!);
+  });
+
   it('plans are continuous and never NaN', () => {
     const cases: [string, string, string][] = [
       ['chem-hauler', 'gateway', 'mars-colony'],
