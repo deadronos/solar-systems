@@ -2,46 +2,73 @@
 
 Working notes on which open issues to tackle next (as of 2026-11-13). Not a design doc.
 
-## Quick wins, in order
+## Done
 
-1. **Event log cleanup: #13 + #24 (one PR)**
-   - #13: `PriceChanged` is ~35% of the log (9,855 of ~28k events in a 20-year soak). It pushes
-     meaningful history out of the 10k ring buffer and floods the activity feed. Add hysteresis or
-     a per-(settlement, good) minimum interval, or move price history to the stats series and keep
-     only band crossings (cheap / normal / scarce).
-   - #24: `EventLog` does an O(n) `shift()` per event once full, `JSON.stringify` per event just to
-     hash it, and never prunes `#byEntity`. Use a circular buffer, hash fields directly, prune on
-     `ShipRemoved` and contract pruning, and add a 1M-append micro-benchmark.
-   - Same files (`src/sim/logistics/core/events.ts`, `markets.ts`), well specified, low risk.
+- PR #43: #24 event log, #13 `PriceChanged` bands, #18 barycenters, #23 moon facing, #26 (part).
+- PR #44: #36 orbit trails, #35 real starfield, #26 (rest).
 
-2. **Earth–Moon barycenter: #18** (good first issue)
-   - Earth is drawn at the EMB, ~4,670 km (0.73 Earth radii) from its true centre.
-   - Treat the JPL "Earth" orbit as the EMB: offset Earth by `−μ·r_moon` and the Moon by
-     `(1−μ)·r_moon`, with `μ ≈ 0.01215`. Generalise via an optional `barycentricPartner`
-     (also covers Pluto–Charon).
+Every remaining issue is labelled `explore`: each needs a design decision before code (see
+`docs/agents/workflow.md`). The options below are starting points for that decision.
 
-3. **Tidally locked moons face the wrong way: #23** (bug)
-   - Synchronous rotation has the right rate but an arbitrary phase, so the Moon's near side
-     doesn't face Earth.
-   - Derive the angle from the direction to the parent, projected onto the equator plane, against
-     the same prime-meridian axis `equatorialToEcliptic` uses, and use that axis in `Body.tsx`.
-   - Natural follow-on to #18 (same ephemeris and frames code).
+## 1. Economy (#5): start here, highest gameplay impact
 
-4. **Tick-loop allocations: #26**
-   - Cache sorted settlement ids, build `createCompanyView` once per tick, make
-     `Ephemeris.positionAt` iterative with scratch vectors, precompute the production order.
+**#11 Colony liquidity drain** (the big one)
 
-## The big one
+- 20-year soak: colony treasuries 785M → 28M, contracts posted 171 → 3 per two years. Earth is an
+  infinite source and sink, upkeep, fees and penalties are paid to no one, and the Earth stipend
+  (~80M/yr) is the only colony income.
+- Options to weigh: make colony exports to Earth pay the colony (not just the trader); route
+  docking fees and penalties to the host settlement; tax company revenue back to colonies; scale
+  the stipend with population or GDP.
+- Decide the money-flow model first: it shapes #14, #15 and #16.
 
-**Colony liquidity drain: #11**
+**#14 Settlements invest in industry**: only housing grows today, and industry is frozen at 2040.
+Depends on #11 (colonies need money to invest). Options: buy machinery and habitat modules from the
+treasury, driven by local prices; give facilities depreciation so machinery has steady demand.
 
-- In a 20-year soak, colony treasuries fall from 785M to 28M and contracts posted drop from 171
-  to 3 per two years. Earth is an infinite source and sink (`treasury: Infinity`), so money leaves
-  the colonies and never returns. The Earth stipend (~80M/yr) is the only colony income.
-- Most important for gameplay, but it's a design question about money flows, not a quick fix.
-- The answer also feeds #14 (settlements investing in industry) and #15 (price formation).
+**#15 Price formation**: price is a pure function of the stock/target ratio, so one ship swings a
+thin market by 4× and there is no slippage. Options: price inertia (move toward target over time),
+order-size slippage, real depth for deep markets.
+
+**#16 AI herding**: companies don't see each other's inbound cargo, so ships converge on the same
+sale (22 `SellCargo:no-demand` in the soak). Option: expose inbound tonnage per settlement and
+good in `CompanyView`; personalities weight it differently.
+
+## 2. Physics (#6)
+
+- **#21 Torch trajectories**: straight-line brachistochrone ignores the origin/target velocity
+  difference and solar gravity. Cheap first step: add `|v_target − v_origin|` to the Δv budget and
+  a convergence check on the fixed-point loop.
+- **#19 Patched-conic Δv**: costs use raw v∞, not `√(v∞² + 2μ/r) − √(μ/r)` from a parking orbit;
+  matters for deep wells (Jupiter's moons). Needs a parking-orbit radius per settlement.
+- **#20 Rocket-equation fuel**: fuel ignores cargo mass. Needs `dryMassT` and exhaust velocity per
+  ship class, and cargo mass in `estimateTrip` cache keys. Changes AI route choice, so it touches
+  economy balance too.
+
+## 3. Performance (#7)
+
+- **#25 Worker deltas**: every delta resends all entity tables 20×/s and the replica replaces
+  every object. Option: per-entity dirty tracking with version counters, and apply only the
+  latest table snapshot per frame.
+- **#27 Batched ships and trajectories**: one DOM marker and one `Line` per ship. Option: one
+  `InstancedMesh`/`Points` for ships and one `LineSegments` for all trajectories. Fold in the
+  orbit-style trailing fade for trajectories (left over from #36).
+
+## 4. Visuals (#9)
+
+- **#34 Atmospheres, night sides, ring shadows, eclipses**: all analytic in shaders (Fresnel rim,
+  ray–sphere and ray–ring tests), no shadow maps. Each piece can ship on its own; the atmosphere
+  rim is the cheapest win.
+- Follow-up from #35 (no issue yet): constellation lines and labels.
+
+## Housekeeping
+
+- GitGuardian flags `src/render/data/brightStars.ts` (base64 star data) as a "Generic Password".
+  Mark the incident as a false positive in the dashboard; consider a `.gitguardian.yaml` that
+  ignores the path so a regenerated file doesn't trip it again.
 
 ## Suggested sequencing
 
-- Fast, clean win: start with #13 + #24.
-- Most impact: start a design pass on #11.
+- Most impact: design pass on #11, then #14 and #16 on top of it.
+- Contained physics win: the cheap first step of #21.
+- Scaling: #25 before large fleets, then #27.
