@@ -1,5 +1,6 @@
 import { RESALE_FRACTION, removeShip } from '../core/commands.ts';
 import { sortedIds, type LogisticsWorld } from '../core/world.ts';
+import { release } from './treasury.ts';
 import type { Company, ShipClass } from './types.ts';
 
 const ENTRANT_NAMES = [
@@ -55,7 +56,10 @@ function bankrupt(world: LogisticsWorld, company: Company): void {
     } else if (c.status === 'loaded') {
       // The cargo is lost with the carrier; the buyer is refunded its prepayment.
       const buyer = world.settlements.get(c.settlementId);
-      if (buyer) buyer.treasury += c.escrowCost;
+      if (buyer) {
+        buyer.treasury += c.escrowCost;
+        release(buyer, c.reward);
+      }
       c.status = 'expired';
       world.events.append(world.jd, {
         type: 'ContractExpired',

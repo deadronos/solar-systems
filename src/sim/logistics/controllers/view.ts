@@ -3,6 +3,7 @@ import { length, vec3 } from '../../math/vec3.ts';
 import { fuelPricePerTonne } from '../core/commands.ts';
 import type { LogisticsWorld } from '../core/world.ts';
 import { askPrice, bidPrice, maxBuyQty } from '../economy/markets.ts';
+import { availableFunds } from '../economy/treasury.ts';
 import type { GoodId } from '../economy/types.ts';
 import type { CompanyView } from './types.ts';
 
@@ -46,7 +47,7 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
     ask: (sid, good) => askPrice(site(sid).market[good], c),
     bid: (sid, good, qty) => {
       const s = site(sid);
-      return bidPrice(s.market[good], c, s.treasury, qty);
+      return bidPrice(s.market[good], c, availableFunds(s), qty);
     },
     demandRoom: (sid, good) => {
       const s = site(sid);

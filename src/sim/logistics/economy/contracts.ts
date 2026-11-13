@@ -2,6 +2,7 @@ import { CONTRACT_PENALTY_FRACTION } from '../core/commands.ts';
 import { TICK_DAYS } from '../core/time.ts';
 import { sortedIds, type LogisticsWorld } from '../core/world.ts';
 import { askPrice } from './markets.ts';
+import { availableFunds, commit, outstanding, release } from './treasury.ts';
 import { GOOD_IDS, type Contract, type GoodId, type Settlement } from './types.ts';
 
 /** Post when projected stock (stock + inbound) falls below this fraction of target. */
@@ -142,9 +143,11 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
   if (e.productionPerDay >= e.consumptionPerDay) return;
   const survival = world.goods.get(good)?.category === 'survival';
   if (!survival && buyer.inShortage) return;
+  // Only money not already promised to other orders may be committed.
+  const funds = availableFunds(buyer);
   const budget = survival
-    ? Math.max(0, buyer.treasury) * MAX_TREASURY_FRACTION
-    : Math.max(0, buyer.treasury - survivalReserve(world, buyer)) * NON_SURVIVAL_TREASURY_FRACTION;
+    ? funds * MAX_TREASURY_FRACTION
+    : Math.max(0, funds - survivalReserve(world, buyer)) * NON_SURVIVAL_TREASURY_FRACTION;
 
   // Local shuttle: neighbours on the same body (e.g. Gateway ↔ Earth Exchange) are one
   // economy — top up straight from them whenever stock in hand runs low. No ship needed.
@@ -187,7 +190,8 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
   qty = Math.min(qty, Math.floor(budget / unitReward));
   if (qty < 1) return;
 
-  // Freight: buy at the best source now and pay a carrier only to haul it.
+  // Freight: reserve the goods at the best source now and pay a carrier only to haul them.
+  // The buyer pays for the goods when they are loaded (escrow) and the fee on delivery.
   const source = bestSource(world, buyer, good, qty);
   if (source) {
     const trip = source.trip;
@@ -195,11 +199,7 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
       const fee = trip.cost * FREIGHT_FEE_MARKUP * escalation;
       const total = source.price * qty + fee;
       if (total < e.price * qty && total <= budget) {
-        buyer.treasury -= source.price * qty;
-        if (!source.s.isDeepMarket) {
-          source.s.market[good].stock -= qty;
-          source.s.treasury += source.price * qty;
-        }
+        if (!source.s.isDeepMarket) source.s.market[good].stock -= qty;
         addContract(world, {
           escrowCost: source.price * qty,
           kind: 'freight',
@@ -258,6 +258,8 @@ function addContract(
     late: false,
   };
   world.contracts.set(contract.id, contract);
+  const buyer = world.settlements.get(contract.settlementId);
+  if (buyer) commit(buyer, outstanding(contract));
   world.events.append(world.jd, {
     type: 'ContractPosted',
     contractId: contract.id,
@@ -302,18 +304,15 @@ export function expireContract(world: LogisticsWorld, contractId: string): void 
     const ship = c.shipId ? world.ships.get(c.shipId) : undefined;
     if (ship && ship.contractId === c.id) ship.contractId = null;
   }
-  // Escrowed freight that was never loaded: goods go back to the pickup, money back to the buyer.
+  const buyer = world.settlements.get(c.settlementId);
+  // The buyer's promise lapses (nothing was paid yet: escrow is only paid at loading).
+  if (buyer) release(buyer, outstanding(c));
+  // Reserved freight that was never loaded goes back to the pickup's stock.
   if (c.kind === 'freight' && c.pickupSettlementId) {
     const pickup = world.settlements.get(c.pickupSettlementId);
-    const buyer = world.settlements.get(c.settlementId);
-    if (pickup && !pickup.isDeepMarket) {
-      pickup.market[c.good].stock += c.qty;
-      pickup.treasury -= c.escrowCost;
-    }
-    if (buyer) buyer.treasury += c.escrowCost;
+    if (pickup && !pickup.isDeepMarket) pickup.market[c.good].stock += c.qty;
   }
   if (c.status === 'open') {
-    const buyer = world.settlements.get(c.settlementId);
     if (buyer) {
       buyer.orderEscalation[c.good] = Math.min(
         ESCALATION_CAP,

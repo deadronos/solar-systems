@@ -75,13 +75,18 @@ describe('production', () => {
 describe('population', () => {
   it('a starving colony shrinks but never goes negative or NaN', () => {
     const w = createWorld(scenario(colony({ treasury: 0 })), eph);
+    // Record the shortage as it happens: unfilled orders soon push it out of the ring.
+    let shortage = false;
+    w.events.subscribe((e) => {
+      if (e.type === 'Shortage') shortage = true;
+    });
     w.advanceTo(START_JD + 3 * 365);
     const s = w.settlements.get('test-colony')!;
     expect(s.population).toBeLessThan(10_000);
     expect(s.population).toBeGreaterThanOrEqual(0);
     expect(Number.isFinite(s.treasury)).toBe(true);
     expect(s.satisfaction.survival).toBeLessThan(C.emigrationThreshold);
-    expect(w.events.recent(1000).some((e) => e.type === 'Shortage')).toBe(true);
+    expect(shortage).toBe(true);
   });
 
   it('a well-supplied colony grows but never exceeds housing', () => {

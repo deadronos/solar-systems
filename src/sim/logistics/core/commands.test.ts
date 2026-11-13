@@ -4,6 +4,7 @@ import { Ephemeris } from '../../world/ephemeris.ts';
 import { createWorld } from '../createWorld.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import type { ScenarioConfig } from '../economy/types.ts';
+import type { Command } from './commands.ts';
 import { START_JD } from './time.ts';
 
 const eph = new Ephemeris(DEFAULT_CATALOG);
@@ -29,6 +30,28 @@ const rejections = (w: ReturnType<typeof createWorld>) =>
     .map((e) => (e.type === 'CommandRejected' ? e.reason : ''));
 
 describe('commands', () => {
+  it("skips a ship's later commands once one is rejected (no empty departures)", () => {
+    const w = createWorld(scenario('torch-courier', 'mars-colony'), eph);
+    const ship = [...w.ships.values()][0]!;
+    const cash0 = w.companies.get('t')!.cash;
+    // Someone else bought the stock first: the buy fails, so the haul must not depart.
+    w.settlements.get('mars-colony')!.market.electronics.stock = 0;
+    expect(
+      w.issue('t', [
+        { type: 'BuyCargo', shipId: ship.id, good: 'electronics', qty: 50, maxPrice: 1e9 },
+        { type: 'PlanAndDispatch', shipId: ship.id, toSiteId: 'earth-exchange' },
+      ]),
+    ).toEqual([false, false]);
+    expect(rejections(w)).toEqual(['earlier-step-failed', 'insufficient-stock']);
+    expect(ship.state).toBe('docked');
+    expect(ship.plan).toBeNull();
+    expect(w.companies.get('t')!.cash).toBe(cash0);
+    // A fresh batch is unaffected by the earlier failure.
+    expect(
+      w.issue('t', [{ type: 'PlanAndDispatch', shipId: ship.id, toSiteId: 'earth-exchange' }]),
+    ).toEqual([true]);
+  });
+
   it('buy → dispatch → arrive → sell moves stock and cash and emits events in order', () => {
     const w = createWorld(scenario('torch-courier', 'earth-exchange'), eph);
     const ship = [...w.ships.values()][0]!;
@@ -84,14 +107,16 @@ describe('commands', () => {
   it('rejects invalid commands with reasons', () => {
     const w = createWorld(scenario('chem-tug', 'gateway', 10), eph);
     const ship = [...w.ships.values()][0]!;
-    const res = w.issue('t', [
+    // One command per batch: each is validated on its own.
+    const cmds: Command[] = [
       { type: 'PlanAndDispatch', shipId: ship.id, toSiteId: 'gateway' },
       { type: 'BuyCargo', shipId: ship.id, good: 'water', qty: 10, maxPrice: 1e9 },
       { type: 'BuyCargo', shipId: ship.id, good: 'water', qty: 1e6, maxPrice: 1e9 },
       { type: 'BuyCargo', shipId: ship.id, good: 'water', qty: 1, maxPrice: 0.01 },
       { type: 'BuyCargo', shipId: 'nope', good: 'water', qty: 1, maxPrice: 1e9 },
       { type: 'SellShip', shipId: ship.id },
-    ]);
+    ];
+    const res = cmds.map((cmd) => w.issue('t', [cmd])[0]);
     expect(res).toEqual([false, false, false, false, false, true]);
     expect(rejections(w).toReversed()).toEqual([
       'same-site',

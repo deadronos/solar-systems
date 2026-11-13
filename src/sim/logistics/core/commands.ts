@@ -1,6 +1,7 @@
 import { addDemand, askPrice, bidPrice, maxBuyQty } from '../economy/markets.ts';
 import type { Company, Contract, GoodId, Settlement, Ship } from '../economy/types.ts';
 import { planTrip } from '../navigation/planner.ts';
+import { availableFunds, release } from '../economy/treasury.ts';
 import type { LogisticsWorld } from './world.ts';
 
 /** Everything a controller (AI or player) can ask the world to do. */
@@ -221,7 +222,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if ((ship.cargo[cmd.good] ?? 0) < cmd.qty - 1e-9) reject('not-in-cargo');
       const e = site.market[cmd.good];
       if (!site.isDeepMarket && cmd.qty > maxBuyQty(e) + 1e-9) reject('market-saturated');
-      const price = bidPrice(e, c, site.treasury, cmd.qty);
+      const price = bidPrice(e, c, availableFunds(site), cmd.qty);
       if (price <= 0) reject('no-demand');
       if (price < cmd.minPrice) reject('price-below-limit');
       if (!site.isDeepMarket) {
@@ -275,6 +276,13 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
         reject('cargo-full');
       ship.cargo[contract.good] = (ship.cargo[contract.good] ?? 0) + contract.qty;
       contract.status = 'loaded';
+      // The buyer pays the pickup for the escrowed goods once they are aboard.
+      const buyer = world.settlements.get(contract.settlementId);
+      if (buyer) {
+        buyer.treasury -= contract.escrowCost;
+        release(buyer, contract.escrowCost);
+      }
+      if (!site.isDeepMarket) site.treasury += contract.escrowCost;
       return;
     }
     case 'DeliverContract': {
@@ -291,6 +299,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       else delete ship.cargo[contract.good];
       site.market[contract.good].stock += contract.qty;
       site.treasury -= contract.reward;
+      release(site, contract.reward);
       earn(company, ship, contract.reward);
       company.stats.contractsCompleted++;
       contract.status = 'completed';
@@ -390,6 +399,30 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
   }
 }
 
+/** The ship a command acts on (directly, or through the contract it names), if any. */
+export function commandShipId(world: LogisticsWorld, cmd: Command): string | undefined {
+  if ('shipId' in cmd) return cmd.shipId;
+  if ('contractId' in cmd) return world.contracts.get(cmd.contractId)?.shipId ?? undefined;
+  return undefined;
+}
+
+function rejected(
+  world: LogisticsWorld,
+  companyId: string,
+  cmd: Command,
+  reason: string,
+  shipId: string | undefined,
+): false {
+  world.events.append(world.jd, {
+    type: 'CommandRejected',
+    companyId,
+    command: cmd.type,
+    reason,
+    ...(shipId ? { shipId } : {}),
+  });
+  return false;
+}
+
 /** Validate and apply one command. Emits CommandRejected and returns false on failure. */
 export function applyCommand(world: LogisticsWorld, companyId: string, cmd: Command): boolean {
   try {
@@ -397,16 +430,31 @@ export function applyCommand(world: LogisticsWorld, companyId: string, cmd: Comm
     return true;
   } catch (err) {
     if (!(err instanceof Rejection)) throw err;
-    const shipId = 'shipId' in cmd ? cmd.shipId : undefined;
-    world.events.append(world.jd, {
-      type: 'CommandRejected',
-      companyId,
-      command: cmd.type,
-      reason: err.reason,
-      ...(shipId ? { shipId } : {}),
-    });
-    return false;
+    return rejected(world, companyId, cmd, err.reason, 'shipId' in cmd ? cmd.shipId : undefined);
   }
+}
+
+/**
+ * Apply a controller's commands in order. A ship's commands form a plan (buy, then
+ * dispatch): once one is rejected, that ship's later commands in the batch are skipped
+ * (rejected as `earlier-step-failed`) so it never departs on a broken plan. Commands for
+ * other ships are unaffected. Returns per-command success.
+ */
+export function applyCommands(
+  world: LogisticsWorld,
+  companyId: string,
+  cmds: Command[],
+): boolean[] {
+  const failedShips = new Set<string>();
+  return cmds.map((cmd) => {
+    const shipId = commandShipId(world, cmd);
+    if (shipId && failedShips.has(shipId)) {
+      return rejected(world, companyId, cmd, 'earlier-step-failed', shipId);
+    }
+    const ok = applyCommand(world, companyId, cmd);
+    if (!ok && shipId) failedShips.add(shipId);
+    return ok;
+  });
 }
 
 /** Per-tick ship running costs and utilisation accounting. */

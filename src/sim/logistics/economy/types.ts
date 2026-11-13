@@ -96,6 +96,11 @@ export interface Settlement extends SettlementDef {
   lastMilestone: number;
   /** Fee multiplier per good, raised each time an order expires unfilled (reset on acceptance). */
   orderEscalation: Partial<Record<GoodId, number>>;
+  /**
+   * Treasury promised to live contracts (delivery rewards and freight fees, plus freight
+   * escrow held until loading). Spending decisions use `treasury − committed`.
+   */
+  committed: number;
 }
 
 export interface ShipClass {
