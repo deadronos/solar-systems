@@ -8,8 +8,8 @@ const run = (cmd) => execSync(cmd, { stdio: 'inherit' });
 const out = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim();
 
 const branch = out('git rev-parse --abbrev-ref HEAD');
-if (branch !== 'master') {
-  console.error(`Releases are cut from master (you are on ${branch}).`);
+if (branch !== 'main') {
+  console.error(`Releases are cut from main (you are on ${branch}).`);
   process.exit(1);
 }
 if (out('git status --porcelain')) {
