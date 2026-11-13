@@ -20,7 +20,7 @@ describe('DEFAULT_SCENARIO', () => {
     for (const r of s.recipes) {
       for (const l of [...r.inputs, ...r.outputs]) expect(goodIds.has(l.good), r.id).toBe(true);
     }
-    for (const tier of Object.values(s.constants.needsPerCapitaPerDay)) {
+    for (const tier of Object.values(s.constants.population.needsPerCapitaPerDay)) {
       for (const g of Object.keys(tier)) expect(goodIds.has(g)).toBe(true);
     }
   });

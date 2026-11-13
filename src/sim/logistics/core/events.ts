@@ -62,6 +62,7 @@ export type EventPayload =
       arriveJd?: number;
     }
   | { type: 'ShipArrived'; shipId: string; companyId: string; settlementId: string }
+  | { type: 'ShipIntentChanged'; shipId: string; companyId: string; text: string }
   | { type: 'ShipIdle'; shipId: string; companyId: string; settlementId?: string }
   | {
       type: 'CargoBought';
@@ -155,6 +156,13 @@ export function eventEntityIds(e: EventPayload): string[] {
   return ids;
 }
 
+export interface EventLogState {
+  count: number;
+  hash: number;
+  ring: LogisticsEvent[];
+  byEntity: [string, LogisticsEvent[]][];
+}
+
 /**
  * Append-only event log: ring buffer for "recent", capped per-entity indices for inspectors,
  * and a running hash over every event ever appended (for determinism checks).
@@ -165,6 +173,22 @@ export class EventLog {
   #listeners = new Set<(e: LogisticsEvent) => void>();
   #count = 0;
   #hash = FNV_OFFSET;
+
+  capture(): EventLogState {
+    return {
+      count: this.#count,
+      hash: this.#hash,
+      ring: this.#ring,
+      byEntity: [...this.#byEntity],
+    };
+  }
+
+  restore(state: EventLogState): void {
+    this.#count = state.count;
+    this.#hash = state.hash;
+    this.#ring = state.ring;
+    this.#byEntity = new Map(state.byEntity);
+  }
 
   get count(): number {
     return this.#count;

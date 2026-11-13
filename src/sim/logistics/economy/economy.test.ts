@@ -31,12 +31,32 @@ const scenario = (s: SettlementDef): ScenarioConfig => ({
   companies: [],
 });
 
+describe('scenario balance settings', () => {
+  it('uses the configured stock buffer and initial reserve for a colony', () => {
+    const base = scenario(colony());
+    const world = createWorld(
+      {
+        ...base,
+        constants: {
+          ...base.constants,
+          markets: { ...base.constants.markets, bufferDays: 20 },
+          population: { ...base.constants.population, initialReserveDays: 50 },
+        },
+      },
+      eph,
+    );
+    const food = world.settlements.get('test-colony')!.market.food;
+    expect(food.targetStock).toBeCloseTo(300);
+    expect(food.stock).toBeCloseTo(750);
+  });
+});
+
 describe('prices', () => {
   it('equals base at ratio 1 and clamps at 0.25× / 4×', () => {
-    expect(priceFor(100, 50, 50, C)).toBeCloseTo(100);
-    expect(priceFor(100, 0, 50, C)).toBeCloseTo(400);
-    expect(priceFor(100, 1e9, 50, C)).toBeCloseTo(25);
-    expect(priceFor(100, 10, 0, C)).toBeCloseTo(100);
+    expect(priceFor(100, 50, 50, C.markets)).toBeCloseTo(100);
+    expect(priceFor(100, 0, 50, C.markets)).toBeCloseTo(400);
+    expect(priceFor(100, 1e9, 50, C.markets)).toBeCloseTo(25);
+    expect(priceFor(100, 10, 0, C.markets)).toBeCloseTo(100);
   });
 
   it('has a spread and a zero bid when the treasury cannot pay', () => {
@@ -48,9 +68,9 @@ describe('prices', () => {
       productionPerDay: 0,
       lastAnnouncedPrice: 100,
     };
-    expect(askPrice(e, C)).toBeGreaterThan(bidPrice(e, C, 1e9, 1));
-    expect(bidPrice(e, C, 0, 5)).toBe(0);
-    expect(maxBuyQty(e)).toBe(20);
+    expect(askPrice(e, C.markets)).toBeGreaterThan(bidPrice(e, C.markets, 1e9, 1));
+    expect(bidPrice(e, C.markets, 0, 5)).toBe(0);
+    expect(maxBuyQty(e, C.markets)).toBe(20);
   });
 });
 
@@ -85,7 +105,7 @@ describe('population', () => {
     expect(s.population).toBeLessThan(10_000);
     expect(s.population).toBeGreaterThanOrEqual(0);
     expect(Number.isFinite(s.treasury)).toBe(true);
-    expect(s.satisfaction.survival).toBeLessThan(C.emigrationThreshold);
+    expect(s.satisfaction.survival).toBeLessThan(C.population.emigrationThreshold);
     expect(shortage).toBe(true);
   });
 
@@ -145,7 +165,7 @@ describe('deep market', () => {
     earth.market.steel.stock -= 5_000_000;
     w.advanceTo(START_JD + 1);
     expect(earth.market.steel.price).toBe(before);
-    expect(bidPrice(earth.market.steel, C, earth.treasury, 1e6)).toBeGreaterThan(0);
+    expect(bidPrice(earth.market.steel, C.markets, earth.treasury, 1e6)).toBeGreaterThan(0);
   });
 });
 

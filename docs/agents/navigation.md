@@ -19,19 +19,24 @@ this before changing `src/sim/logistics/navigation/*` or ship classes.
 - `NavContext` (`world.nav`) holds the caches: per-pair porkchop grids (rebuilt every 120
   days), immediate-departure sweeps shared by estimates and plans at the exact transfer
   start date, and estimates. Sweep and estimate caches are cleared wholesale
-  past a size cap.
+  past a size cap. Snapshots carry the launch grids and cached estimates. The grid
+  start depends on past queries, so rebuilding it at restore time can change routes.
 
 ## Engine tiers (`ShipClass.tier`)
 
-| Tier                      | Model                                                                                                                                                                                                                                                        | Cost                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| 1 chemical, 2 nuclear/ion | Heliocentric **Lambert** transfers (single-rev, prograde) over a launch-window grid: 24 departures across one synodic period × 16 times of flight (0.4–2× Hohmann). Picks earliest arrival + 0.5 × Δv. Same-planet-system hops use a planet-centred Hohmann. | Fuel = Δv × `fuelTPerKmS`; must fit `deltaVBudgetKmS` minus surface ascent/descent. |
-| 3 fusion torch            | Straight-line accelerate / flip / decelerate toward the target's predicted position (5 fixed-point iterations).                                                                                                                                              | Fuel = Δv × `fuelTPerKmS`.                                                          |
-| 4 antimatter              | Torch profile with a speed cap (`maxSpeedFractionC`).                                                                                                                                                                                                        | Exotic credits per km/s, sold only at shipyards.                                    |
-| 5 jump drive              | Charge for `jumpChargeHours`, then a straight-line FTL jump.                                                                                                                                                                                                 | Flat exotic cost per jump, shipyards only.                                          |
+| Tier                      | Model                                                                                                                                                                                                                                                                           | Cost                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 1 chemical, 2 nuclear/ion | Heliocentric **Lambert** transfers (single-rev, prograde) over a launch-window grid: 24 departures across one synodic period × 16 times of flight (0.4–2× Hohmann). Scores arrival time plus a configurable weight on Δv. Same-planet-system hops use a planet-centred Hohmann. | Fuel = Δv × `fuelTPerKmS`; must fit `deltaVBudgetKmS` minus surface ascent/descent. |
+| 3 fusion torch            | Straight-line accelerate / flip / decelerate toward the target's predicted position (5 fixed-point iterations).                                                                                                                                                                 | Fuel = Δv × `fuelTPerKmS`.                                                          |
+| 4 antimatter              | Torch profile with a speed cap (`maxSpeedFractionC`).                                                                                                                                                                                                                           | Exotic credits per km/s, sold only at shipyards.                                    |
+| 5 jump drive              | Charge for `jumpChargeHours`, then a straight-line FTL jump.                                                                                                                                                                                                                    | Flat exotic cost per jump, shipyards only.                                          |
 
-- **Surface sites** add ascent and descent Δv of 1.2 × circular speed and 6-hour hold legs.
-- **Same-body hops** (orbit ↔ surface, station ↔ station) are a 12-hour docking hold.
+- **Surface sites** add ascent and descent Δv of `nav.surfaceDvFactor` × circular speed
+  and hold legs of `nav.surfaceLegDays` (default 1.2× and 6 hours).
+- **Same-body hops** (orbit ↔ surface, station ↔ station) are a docking hold of
+  `nav.sameBodyDays` (default 12 hours).
+- `nav.lowOrbitFactor` sets the local transfer parking radius relative to the body radius.
+  `nav.transferDaysPerKmS` weights Δv when scoring Lambert launch windows.
 
 ## Plans and legs
 

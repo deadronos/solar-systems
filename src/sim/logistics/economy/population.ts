@@ -3,8 +3,6 @@ import { addDemand } from './markets.ts';
 import type { NeedTier, Settlement } from './types.ts';
 
 const TIERS: NeedTier[] = ['survival', 'basic', 'comfort'];
-/** Spread housing-material demand over this many days so prices signal the need. */
-const HOUSING_DEMAND_DAYS = 60;
 
 /**
  * Consume needs, update satisfaction, grow or shrink population (no deaths: people leave),
@@ -12,7 +10,7 @@ const HOUSING_DEMAND_DAYS = 60;
  */
 export function runPopulation(s: Settlement, world: LogisticsWorld, dtDays: number): void {
   if (s.isDeepMarket) return;
-  const c = world.constants;
+  const c = world.constants.population;
   const pop = s.population;
   s.treasury += c.stipendPerCapitaPerDay * pop * dtDays;
   if (pop <= 0) return;
@@ -48,7 +46,9 @@ export function runPopulation(s: Settlement, world: LogisticsWorld, dtDays: numb
   if (survival < c.emigrationThreshold) {
     rate = (-c.maxEmigrationPerYear * (c.emigrationThreshold - survival)) / c.emigrationThreshold;
   } else {
-    rate = c.maxGrowthPerYear * (0.25 + 0.4 * basic + 0.35 * comfort);
+    rate =
+      c.maxGrowthPerYear *
+      (c.baselineGrowthWeight + c.basicGrowthWeight * basic + c.comfortGrowthWeight * comfort);
   }
   let next = pop * (1 + (rate * dtDays) / 365.25);
   next = Math.min(Math.max(next, 0), Math.max(s.housingCapacity, 0));
@@ -77,7 +77,7 @@ export function runPopulation(s: Settlement, world: LogisticsWorld, dtDays: numb
   // Housing expansion.
   const hb = c.housingBatch;
   if (s.housingCapacity > 0 && next / s.housingCapacity > hb.occupancyTrigger) {
-    for (const i of hb.inputs) addDemand(s, i.good, (i.qty * dtDays) / HOUSING_DEMAND_DAYS);
+    for (const i of hb.inputs) addDemand(s, i.good, (i.qty * dtDays) / c.housingDemandDays);
     if (hb.inputs.every((i) => s.market[i.good].stock >= i.qty)) {
       for (const i of hb.inputs) s.market[i.good].stock -= i.qty;
       s.housingCapacity *= 1 + hb.capacityGainFraction;

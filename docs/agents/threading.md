@@ -24,7 +24,8 @@ Where the economy runs and how the main thread sees it. Read this before changin
   same `createWorld(..., { controllers: false })`, so the UI has data before the first delta.
   Unmounting `SimulationProvider` or replacing its simulation disposes the old worker.
 - `Simulation` falls back to inline if the worker fails **before** it delivered anything. A
-  failure after start sets `economyError` and stops the economy (#32).
+  failure after start sets `economyError` and stops the economy. The authoritative snapshot
+  API currently runs independently of the worker protocol (see [economy.md](economy.md)).
 
 ## Protocol
 

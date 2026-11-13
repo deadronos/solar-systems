@@ -1,7 +1,8 @@
 import { J2000 } from '../../constants.ts';
 import { length, sub, vec3, type Vec3 } from '../../math/vec3.ts';
 import type { Ephemeris } from '../../world/ephemeris.ts';
-import type { Settlement, ShipClass } from '../economy/types.ts';
+import { ECONOMY_CONSTANTS } from '../data/economyConstants.ts';
+import type { EconomyConstants, Settlement, ShipClass } from '../economy/types.ts';
 import { MU_SUN_KM3_S2 } from './kepler2.ts';
 import { bodyState, solveLambert } from './lambert.ts';
 import type { Leg, TrajectoryPlan } from './plan.ts';
@@ -10,14 +11,7 @@ const DAY = 86_400;
 const C_KM_S = 299_792.458;
 const G0_KM_S2 = 0.009_806_65;
 
-/** Hold durations (days). */
-const SURFACE_LEG_DAYS = 0.25;
-const SAME_BODY_DAYS = 0.5;
 const GRID_REFRESH_DAYS = 120;
-/** Surface ascent/descent Δv as a multiple of circular speed at the surface. */
-const SURFACE_DV_FACTOR = 1.2;
-/** Low-orbit radius as a multiple of planet radius (local transfers start here). */
-const LOW_ORBIT_FACTOR = 1.05;
 
 export interface TripEstimate {
   departJd: number;
@@ -46,6 +40,14 @@ export class PorkchopCache {
     this.#ctx = ctx;
   }
 
+  capture(): NavState['grids'] {
+    return [...this.#grids];
+  }
+
+  restore(grids: NavState['grids']): void {
+    this.#grids = new Map(grids);
+  }
+
   cells(fromBody: string, toBody: string, earliestJd: number): Cell[] {
     const key = `${fromBody}>${toBody}`;
     const g = this.#grids.get(key);
@@ -70,16 +72,33 @@ export class PorkchopCache {
   }
 }
 
+export interface NavState {
+  grids: [string, { start: number; cells: Cell[] }][];
+  estimates: [string, TripEstimate | null][];
+}
+
 /** Shared navigation context: ephemeris access plus caches. */
 export class NavContext {
   readonly eph: Ephemeris;
+  readonly balance: Readonly<EconomyConstants['nav']>;
   readonly porkchop: PorkchopCache;
   #sweeps = new Map<string, Cell[]>();
   #estimates = new Map<string, TripEstimate | null>();
 
-  constructor(eph: Ephemeris) {
+  constructor(eph: Ephemeris, balance = ECONOMY_CONSTANTS.nav) {
     this.eph = eph;
+    this.balance = Object.freeze({ ...balance });
     this.porkchop = new PorkchopCache(this);
+  }
+
+  capture(): NavState {
+    return { grids: this.porkchop.capture(), estimates: [...this.#estimates] };
+  }
+
+  restore(state: NavState): void {
+    this.porkchop.restore(state.grids);
+    this.#estimates = new Map(state.estimates);
+    this.#sweeps.clear();
   }
 
   /** The body orbiting the Sun that a body belongs to (itself for planets/asteroids). */
@@ -96,7 +115,7 @@ export class NavContext {
     if (site.site.kind !== 'surface') return 0;
     const gm = this.gm(site.site.bodyId);
     const r = this.eph.get(site.site.bodyId).radiusKm;
-    return gm > 0 ? SURFACE_DV_FACTOR * Math.sqrt(gm / r) : 0;
+    return gm > 0 ? this.balance.surfaceDvFactor * Math.sqrt(gm / r) : 0;
   }
 
   pairTimescales(fromBody: string, toBody: string): { synodicDays: number; hohmannDays: number } {
@@ -225,14 +244,20 @@ function solveTrip(
   if (fromBody === toBody) {
     const dv = Math.max(ctx.surfaceDv(from), ctx.surfaceDv(to));
     if (cls.deltaVBudgetKmS !== undefined && dv > cls.deltaVBudgetKmS) return null;
-    if (withLegs) legs.push(hold(fromBody, earliestJd, earliestJd + SAME_BODY_DAYS, 'docking'));
-    return { departJd: earliestJd, arriveJd: earliestJd + SAME_BODY_DAYS, deltaVKmS: dv, legs };
+    if (withLegs)
+      legs.push(hold(fromBody, earliestJd, earliestJd + ctx.balance.sameBodyDays, 'docking'));
+    return {
+      departJd: earliestJd,
+      arriveJd: earliestJd + ctx.balance.sameBodyDays,
+      deltaVKmS: dv,
+      legs,
+    };
   }
 
   const ascentDv = ctx.surfaceDv(from);
   const descentDv = ctx.surfaceDv(to);
-  const ascentDays = from.site.kind === 'surface' ? SURFACE_LEG_DAYS : 0;
-  const descentDays = to.site.kind === 'surface' ? SURFACE_LEG_DAYS : 0;
+  const ascentDays = from.site.kind === 'surface' ? ctx.balance.surfaceLegDays : 0;
+  const descentDays = to.site.kind === 'surface' ? ctx.balance.surfaceLegDays : 0;
   const local = ctx.helioBody(fromBody) === ctx.helioBody(toBody);
 
   let transferStart: number;
@@ -260,7 +285,7 @@ function solveTrip(
       for (const list of [now, later]) {
         for (const c of list) {
           if (c.dv > budget || (list === later && c.departJd < t0)) continue;
-          const score = c.departJd + c.tofDays + c.dv * 0.5; // prefer early arrival, then efficiency
+          const score = c.departJd + c.tofDays + c.dv * ctx.balance.transferDaysPerKmS; // prefer early arrival, then efficiency
           if (score < bestScore) {
             best = c;
             bestScore = score;
@@ -337,7 +362,7 @@ function solveTrip(
 
 /** Orbital radius of a body around its helio parent planet; planets themselves → low orbit. */
 function localRadius(ctx: NavContext, bodyId: string, helio: string): number {
-  if (bodyId === helio) return ctx.eph.get(bodyId).radiusKm * LOW_ORBIT_FACTOR;
+  if (bodyId === helio) return ctx.eph.get(bodyId).radiusKm * ctx.balance.lowOrbitFactor;
   return ctx.eph.semiMajorAxisKm(bodyId, J2000);
 }
 

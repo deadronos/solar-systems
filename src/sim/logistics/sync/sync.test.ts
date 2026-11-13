@@ -64,12 +64,20 @@ function view(w: LogisticsWorld) {
 
 describe('economy worker', () => {
   it(
-    'mirrors the economy into a replica identical to running it inline',
+    'mirrors a scenario with custom balance settings identically to running it inline',
     { timeout: 60_000 },
     () => {
       const fake = fakeWorker();
+      const defaults = DEFAULT_SCENARIO.constants;
+      const scenario = {
+        ...DEFAULT_SCENARIO,
+        constants: {
+          ...defaults,
+          contracts: { ...defaults.contracts, maxContractQtyT: 200 },
+        },
+      };
       const sim = new Simulation({
-        scenario: DEFAULT_SCENARIO,
+        scenario,
         economy: 'worker',
         spawnWorker: () => fake.port,
         rate: 2_629_800, // a month per second
@@ -83,11 +91,15 @@ describe('economy worker', () => {
       const replica = sim.logistics!;
       expect(replica.jd).toBeGreaterThan(DEFAULT_SCENARIO.startJd + 300);
 
-      const reference = createWorld(DEFAULT_SCENARIO, new Ephemeris(DEFAULT_CATALOG), {
+      const reference = createWorld(scenario, new Ephemeris(DEFAULT_CATALOG), {
         controllers: true,
       });
       reference.advanceTo(replica.jd);
       expect(view(replica)).toBe(view(reference));
+      expect(replica.events.recent(1, (e) => e.type === 'ShipIntentChanged')).toHaveLength(1);
+      const posted = [...replica.contracts.values()];
+      expect(posted.length).toBeGreaterThan(0);
+      expect(posted.every((contract) => contract.qty <= 200)).toBe(true);
     },
   );
 

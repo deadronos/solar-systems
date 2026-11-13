@@ -1,37 +1,14 @@
-import { CONTRACT_PENALTY_FRACTION } from '../core/commands.ts';
 import { TICK_DAYS } from '../core/time.ts';
-import { sortedIds, type LogisticsWorld } from '../core/world.ts';
-import { askPrice } from './markets.ts';
+import { sortedIds } from '../core/sortedIds.ts';
+import type { LogisticsWorld } from '../core/world.ts';
+import { askPrice, spareStock } from './markets.ts';
 import { availableFunds, commit, outstanding, release } from './treasury.ts';
 import { GOOD_IDS, type Contract, type GoodId, type Settlement } from './types.ts';
 
-/** Post when projected stock (stock + inbound) falls below this fraction of target. */
-const POST_THRESHOLD = 0.5;
-/** A single contract may commit at most this fraction of the treasury. */
-const MAX_TREASURY_FRACTION = 0.5;
 /** Contracts are generated once per this many days. */
 const GENERATION_INTERVAL_DAYS = 1;
-const MIN_DEADLINE_DAYS = 120;
-/** Deadline = this multiple of the expected haul (minimum MIN_DEADLINE_DAYS). */
-const DEADLINE_TRIP_MULTIPLE = 3;
-/** Unfilled orders are reposted with fees raised by this factor, up to the cap. */
-const ESCALATION_STEP = 1.5;
-const ESCALATION_CAP = 8;
-const FREIGHT_FEE_MARKUP = 1.5;
-/** Floor on the haul cost used to price a contract, so short hops are still worth a ship. */
-const MIN_HAUL_COST = 50_000;
-/** A source must keep at least this fraction of its own target stock. */
-const SOURCE_RESERVE = 0.5;
 /** Finished contracts are forgotten after this many days. */
 const PRUNE_AFTER_DAYS = 90;
-/** Largest single contract (tonnes) — bigger needs are split over successive postings. */
-const MAX_CONTRACT_QTY = 800;
-/** Lead time assumed when no source can currently be routed (days). */
-const DEFAULT_LEAD_DAYS = 365;
-/** Premium multiplier while the buyer is short of survival goods. */
-const SHORTAGE_PREMIUM_FACTOR = 2;
-/** Non-survival orders may only commit this fraction of the treasury (survival comes first). */
-const NON_SURVIVAL_TREASURY_FRACTION = 0.15;
 
 /** Tonnes already contracted (open, accepted or loaded) to a settlement for a good. */
 export function inboundQty(world: LogisticsWorld, settlementId: string, good: GoodId): number {
@@ -66,8 +43,8 @@ function tripCostAndDays(world: LogisticsWorld, from: Settlement, to: Settlement
       est.fuelT * fuelPrice +
       est.exoticCost +
       cls.upkeepPerDay * days +
-      2 * world.constants.dockingFee;
-    return { days, cost: Math.max(cost, MIN_HAUL_COST) };
+      2 * world.constants.ships.dockingFee;
+    return { days, cost: Math.max(cost, world.constants.contracts.minHaulCost) };
   }
   return null;
 }
@@ -79,11 +56,9 @@ function bestLocalSource(world: LogisticsWorld, buyer: Settlement, good: GoodId,
     const s = world.settlements.get(id)!;
     if (s.id === buyer.id || s.site.bodyId !== buyer.site.bodyId) continue;
     const e = s.market[good];
-    const spare = s.isDeepMarket
-      ? Number.POSITIVE_INFINITY
-      : e.stock - SOURCE_RESERVE * e.targetStock;
+    const spare = spareStock(s, good, world.constants.contracts.sourceReserveFraction);
     if (spare < qty) continue;
-    const price = askPrice(e, world.constants);
+    const price = askPrice(e, world.constants.markets);
     if (!best || price < best.price) best = { s, price };
   }
   return best;
@@ -108,14 +83,12 @@ function bestSource(
     if (id === buyer.id) continue;
     const s = world.settlements.get(id)!;
     const e = s.market[good];
-    const spare = s.isDeepMarket
-      ? Number.POSITIVE_INFINITY
-      : e.stock - SOURCE_RESERVE * e.targetStock;
+    const spare = spareStock(s, good, world.constants.contracts.sourceReserveFraction);
     if (spare < qty || (!s.isDeepMarket && e.productionPerDay <= 0)) continue;
     const trip = tripCostAndDays(world, s, buyer, qty);
     if (!trip) continue;
-    const price = askPrice(e, world.constants);
-    const landed = price * qty + trip.cost * FREIGHT_FEE_MARKUP;
+    const price = askPrice(e, world.constants.markets);
+    const landed = price * qty + trip.cost * world.constants.contracts.freightFeeMarkup;
     if (!best || landed < best.landed) best = { s, price, trip, landed };
   }
   return best;
@@ -125,18 +98,19 @@ function bestSource(
 function survivalReserve(world: LogisticsWorld, s: Settlement): number {
   const c = world.constants;
   let perDay = 0;
-  for (const [g, perCapita] of Object.entries(c.needsPerCapitaPerDay.survival)) {
+  for (const [g, perCapita] of Object.entries(c.population.needsPerCapitaPerDay.survival)) {
     perDay +=
       s.population *
       (perCapita ?? 0) *
       (world.goods.get(g as GoodId)?.basePrice ?? 0) *
-      c.priceClampMax;
+      c.markets.priceClampMax;
   }
-  return perDay * 365;
+  return perDay * c.contracts.survivalTreasuryReserveDays;
 }
 
 function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
-  const c = world.constants;
+  const c = world.constants.contracts;
+  const { dockingFee } = world.constants.ships;
   const e = buyer.market[good];
   if (e.targetStock <= 0) return;
   // Self-supplied goods (local output keeps up with use) are never imported.
@@ -146,18 +120,18 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
   // Only money not already promised to other orders may be committed.
   const funds = availableFunds(buyer);
   const budget = survival
-    ? funds * MAX_TREASURY_FRACTION
-    : Math.max(0, funds - survivalReserve(world, buyer)) * NON_SURVIVAL_TREASURY_FRACTION;
+    ? funds * c.maxTreasuryFraction
+    : Math.max(0, funds - survivalReserve(world, buyer)) * c.nonSurvivalTreasuryFraction;
 
   // Local shuttle: neighbours on the same body (e.g. Gateway ↔ Earth Exchange) are one
   // economy — top up straight from them whenever stock in hand runs low. No ship needed.
-  if (e.stock < POST_THRESHOLD * e.targetStock) {
+  if (e.stock < c.postThreshold * e.targetStock) {
     const want = Math.ceil(e.targetStock - e.stock);
     const local = bestLocalSource(world, buyer, good, want);
     if (local) {
-      const qty = Math.min(want, Math.floor((budget - 2 * c.dockingFee) / local.price));
+      const qty = Math.min(want, Math.floor((budget - 2 * dockingFee) / local.price));
       if (qty >= 1) {
-        const cost = local.price * qty + 2 * c.dockingFee;
+        const cost = local.price * qty + 2 * dockingFee;
         buyer.treasury -= cost;
         e.stock += qty;
         if (!local.s.isDeepMarket) {
@@ -178,13 +152,13 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
   }
 
   // Cover consumption during the delivery lead time as well as the normal buffer.
-  const lead = bestSource(world, buyer, good, Math.min(MAX_CONTRACT_QTY, e.targetStock));
-  const leadDays = lead ? lead.trip.days : DEFAULT_LEAD_DAYS;
+  const lead = bestSource(world, buyer, good, Math.min(c.maxContractQtyT, e.targetStock));
+  const leadDays = lead ? lead.trip.days : c.defaultLeadDays;
   const desired = e.targetStock + e.consumptionPerDay * leadDays;
   const projected = e.stock + inboundQty(world, buyer.id, good);
-  if (projected >= POST_THRESHOLD * desired) return;
-  let qty = Math.min(MAX_CONTRACT_QTY, Math.ceil(desired - projected));
-  const premium = c.contractPremium * (buyer.inShortage ? SHORTAGE_PREMIUM_FACTOR : 1);
+  if (projected >= c.postThreshold * desired) return;
+  let qty = Math.min(c.maxContractQtyT, Math.ceil(desired - projected));
+  const premium = c.contractPremium * (buyer.inShortage ? c.shortagePremiumFactor : 1);
   const unitReward = e.price * (1 + premium);
   const escalation = buyer.orderEscalation[good] ?? 1;
   qty = Math.min(qty, Math.floor(budget / unitReward));
@@ -196,7 +170,7 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
   if (source) {
     const trip = source.trip;
     {
-      const fee = trip.cost * FREIGHT_FEE_MARKUP * escalation;
+      const fee = trip.cost * c.freightFeeMarkup * escalation;
       const total = source.price * qty + fee;
       if (total < e.price * qty && total <= budget) {
         if (!source.s.isDeepMarket) source.s.market[good].stock -= qty;
@@ -208,7 +182,7 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
           good,
           qty,
           reward: fee,
-          deadlineDays: Math.max(MIN_DEADLINE_DAYS, DEADLINE_TRIP_MULTIPLE * trip.days),
+          deadlineDays: Math.max(c.minDeadlineDays, c.deadlineTripMultiple * trip.days),
         });
         return;
       }
@@ -218,7 +192,7 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
   // Delivery: the carrier sources the cargo wherever it likes. The reward covers the
   // goods at local value plus the premium and the expected cost of hauling them.
   const trip = source?.trip ?? null;
-  const reward = unitReward * qty + (trip?.cost ?? 0) * FREIGHT_FEE_MARKUP * escalation;
+  const reward = unitReward * qty + (trip?.cost ?? 0) * c.freightFeeMarkup * escalation;
   if (reward > budget) return;
   addContract(world, {
     escrowCost: 0,
@@ -228,7 +202,7 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
     good,
     qty,
     reward,
-    deadlineDays: Math.max(MIN_DEADLINE_DAYS, DEADLINE_TRIP_MULTIPLE * (trip?.days ?? 0)),
+    deadlineDays: Math.max(c.minDeadlineDays, c.deadlineTripMultiple * (trip?.days ?? 0)),
   });
 }
 
@@ -270,7 +244,7 @@ function addContract(
     kind: contract.kind,
     ...(contract.pickupSettlementId ? { pickupSettlementId: contract.pickupSettlementId } : {}),
   });
-  world.schedule(contract.deadlineJd, (w) => expireContract(w, contract.id));
+  world.schedule(contract.deadlineJd, { kind: 'expireContract', contractId: contract.id });
 }
 
 /** Deadline handler: open → expired; accepted/loaded → expired with a carrier penalty. */
@@ -280,7 +254,7 @@ export function expireContract(world: LogisticsWorld, contractId: string): void 
   let penalty = 0;
   const companyId = c.companyId;
   if (c.status === 'accepted' || c.status === 'loaded') {
-    penalty = c.reward * CONTRACT_PENALTY_FRACTION;
+    penalty = c.reward * world.constants.contracts.penaltyFraction;
     const company = companyId ? world.companies.get(companyId) : undefined;
     if (company) {
       company.cash -= penalty;
@@ -315,8 +289,8 @@ export function expireContract(world: LogisticsWorld, contractId: string): void 
   if (c.status === 'open') {
     if (buyer) {
       buyer.orderEscalation[c.good] = Math.min(
-        ESCALATION_CAP,
-        (buyer.orderEscalation[c.good] ?? 1) * ESCALATION_STEP,
+        world.constants.contracts.escalationCap,
+        (buyer.orderEscalation[c.good] ?? 1) * world.constants.contracts.escalationStep,
       );
     }
   }

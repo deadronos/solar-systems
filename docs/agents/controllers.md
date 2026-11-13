@@ -19,16 +19,21 @@ interface CompanyController {
   company an `AiBrain`. New entrants get one when `CompanyFounded` fires. Swap one with
   `world.setController(id, controller)`.
 - **Wake-ups:** `ShipIdle`, `ShipDelivered` and `ShipArrived` events queue reasons per company.
-  Every company also gets `periodic` (daily) and `fleetReview` (every 30 days). Companies decide
+  Every company also gets `periodic` (daily) and `fleetReview` (every `ai.fleetReviewDays`, 30 days by default). Companies decide
   once per tick, in sorted id order, during the `controllers` phase (the last one).
   To add a wake reason, add it to `WakeReason` _and_ emit it in `installControllers`.
 - **`CompanyView`** (`createCompanyView`) is a company-scoped window: own ships, settlements,
-  open contracts, market quotes (`ask`, `bid`, `demandRoom`), trip estimates and fuel prices.
+  open contracts, market quotes (`ask`, `bid`, `demandRoom`), trip estimates, fuel prices and
+  the scenario docking fee. The view also exposes a read-only copy of the scenario AI policy
+  and the source stock reserve fraction shared with contract posting.
   Quotes use the same functions as command validation, so a decision made on the view matches
   what the command will see. Same tick, same state.
-- The view's objects are **typed `Readonly` but are the live world objects**. Never mutate them.
-  The one sanctioned side channel is `view.setIntent(shipId, text)`, the human-readable
-  "what is this ship doing" line shown in the UI (#31 tracks tightening this).
+- The view exposes deeply read-only, frozen copies of world data, including market entries
+  and cached trip estimates. Copies are made on first access and reused within a decision.
+  Create a new view for each decision so its queries and quotes use current world state.
+- Controllers update the ship's human-readable intent with `SetIntent`. The command checks
+  ownership and emits `ShipIntentChanged` only when the text changes. The worker sends the
+  updated intent as part of its regular ship data.
 
 ## Command batches
 
@@ -52,22 +57,23 @@ To add a command: add a union member to `Command`, a `case` in `apply()` that va
   2. Otherwise sell any unassigned cargo here or route it to the best buyer.
   3. Otherwise pick the best-scoring candidate.
 - **Candidates and scoring:**
-  - Open contracts are costed per ship, using landed source cost plus legs.
+  - Open contracts are costed per ship, using landed source cost plus the cost of each leg.
+    Contract and trade estimates include the scenario docking fee per leg.
   - Trades come from here, or after repositioning to a cheap source. The top 6 raw margins get
     a real trip estimate.
   - The score is profit per day, weighted by the company's personality (`contractVsTradeBias`,
     `riskAversion`, `regionBias`, `preferredGoods`, `minMarginPct`).
-- Every decision sets the ship's intent. Labels are built lazily (only for the chosen
-  candidate) because formatting every option was measurable.
-- **Fleet review** (every 30 days):
+- The AI builds intent labels lazily for the chosen plan. It emits the final label once,
+  before the ship's action commands, so the label can explain the plan even if an action
+  is rejected.
+- **Fleet review**:
   - Buys a ship when cash is above `expansionCashThreshold` and utilisation is at least
     `targetUtilisation`.
   - Sells the worst idle ship when in distress or when idle and poor.
 - Memory (`#jobs`, `#nextLook`, `#lastBusy`) is **advisory**. The world is the truth: a ship's
-  `contractId` overrides remembered jobs. Memory is not serialised.
+  `contractId` overrides remembered jobs. Snapshots preserve that memory, the last fleet
+  review date and the runner's queued wake reasons for exact continuation.
 
 ## Known gaps (documented, not drift)
 
 - Companies don't see each other's inbound cargo and can herd onto the same sale (#16).
-- `AiBrain` duplicates some helpers and constants from commands and UI (`cargoMass`,
-  `fmtMoney`, `DOCKING_FEE_ESTIMATE`) (#29).

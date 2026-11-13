@@ -6,6 +6,7 @@ import type { LogisticsWorld } from './world.ts';
 
 /** Everything a controller (AI or player) can ask the world to do. */
 export type Command =
+  | { type: 'SetIntent'; shipId: string; text: string }
   | { type: 'PlanAndDispatch'; shipId: string; toSiteId: string }
   | { type: 'BuyCargo'; shipId: string; good: GoodId; qty: number; maxPrice: number }
   | { type: 'SellCargo'; shipId: string; good: GoodId; qty: number; minPrice: number }
@@ -16,23 +17,15 @@ export type Command =
   | { type: 'PurchaseShip'; classId: string; shipyardSiteId: string }
   | { type: 'SellShip'; shipId: string };
 
-/** Emergency fuel (depot dry) costs this multiple of the base fuel price. */
-export const EMERGENCY_FUEL_FACTOR = 3;
-
 /**
  * Effective fuel price for `qty` tonnes at a site: the local ask while the depot has stock,
  * otherwise emergency supply at a steep premium (keeps ships from being stranded).
  */
 export function fuelPricePerTonne(world: LogisticsWorld, site: Settlement, qty: number): number {
   const e = site.market.fuel;
-  if (site.isDeepMarket || e.stock >= qty) return askPrice(e, world.constants);
-  return (world.goods.get('fuel')?.basePrice ?? 0) * EMERGENCY_FUEL_FACTOR;
+  if (site.isDeepMarket || e.stock >= qty) return askPrice(e, world.constants.markets);
+  return (world.goods.get('fuel')?.basePrice ?? 0) * world.constants.ships.emergencyFuelFactor;
 }
-
-/** Fraction of list price recovered when selling a ship. */
-export const RESALE_FRACTION = 0.6;
-/** Penalty for abandoning or failing an accepted contract (fraction of reward). */
-export const CONTRACT_PENALTY_FRACTION = 0.1;
 
 class Rejection extends Error {
   readonly reason: string;
@@ -46,7 +39,7 @@ const reject = (reason: string): never => {
   throw new Rejection(reason);
 };
 
-export const cargoMass = (ship: Ship): number =>
+export const cargoMass = (ship: Pick<Ship, 'cargo'>): number =>
   Object.values(ship.cargo).reduce((a, b) => a + (b ?? 0), 0);
 
 function getShip(world: LogisticsWorld, companyId: string, shipId: string): Ship {
@@ -92,7 +85,7 @@ export function removeShip(world: LogisticsWorld, ship: Ship): void {
   });
 }
 
-function arrive(world: LogisticsWorld, shipId: string): void {
+export function arrive(world: LogisticsWorld, shipId: string): void {
   const ship = world.ships.get(shipId);
   if (!ship || !ship.plan) return;
   const dest = ship.plan.toSiteId;
@@ -102,7 +95,7 @@ function arrive(world: LogisticsWorld, shipId: string): void {
   ship.stats.trips++;
   const company = world.companies.get(ship.companyId);
   if (company) {
-    const fee = world.constants.dockingFee;
+    const fee = world.constants.ships.dockingFee;
     company.cash -= fee;
     company.stats.costs += fee;
     ship.stats.costs += fee;
@@ -128,7 +121,17 @@ function arrive(world: LogisticsWorld, shipId: string): void {
   }
 }
 
-function depart(world: LogisticsWorld, shipId: string): void {
+export function deliverShip(world: LogisticsWorld, shipId: string, siteId: string): void {
+  const ship = world.ships.get(shipId);
+  if (!ship || ship.state !== 'building') return;
+  ship.state = 'docked';
+  ship.intent = 'Idle';
+  const ids = { shipId, companyId: ship.companyId, settlementId: siteId };
+  world.events.append(world.jd, { type: 'ShipDelivered', ...ids });
+  world.events.append(world.jd, { type: 'ShipIdle', ...ids });
+}
+
+export function depart(world: LogisticsWorld, shipId: string): void {
   const ship = world.ships.get(shipId);
   if (!ship || !ship.plan || ship.state !== 'waiting') return;
   const from = ship.siteId ?? undefined;
@@ -150,6 +153,19 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
   const c = world.constants;
 
   switch (cmd.type) {
+    case 'SetIntent': {
+      const ship = getShip(world, companyId, cmd.shipId);
+      if (typeof cmd.text !== 'string') reject('invalid-intent');
+      if (ship.intent === cmd.text) return;
+      ship.intent = cmd.text;
+      world.events.append(world.jd, {
+        type: 'ShipIntentChanged',
+        shipId: ship.id,
+        companyId,
+        text: cmd.text,
+      });
+      return;
+    }
     case 'PlanAndDispatch': {
       const ship = getShip(world, companyId, cmd.shipId);
       const from = dockedAt(world, ship);
@@ -185,8 +201,8 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       ship.plan = plan;
       ship.state = 'waiting';
       if (plan.departJd <= world.jd) depart(world, ship.id);
-      else world.schedule(plan.departJd, (w) => depart(w, ship.id));
-      world.schedule(plan.arriveJd, (w) => arrive(w, ship.id));
+      else world.schedule(plan.departJd, { kind: 'depart', shipId: ship.id });
+      world.schedule(plan.arriveJd, { kind: 'arrive', shipId: ship.id });
       return;
     }
     case 'BuyCargo': {
@@ -196,7 +212,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (cargoMass(ship) + cmd.qty > world.shipClassOf(ship).cargoT + 1e-9) reject('cargo-full');
       const e = site.market[cmd.good];
       if (e.stock < cmd.qty) reject('insufficient-stock');
-      const price = askPrice(e, c);
+      const price = askPrice(e, c.markets);
       if (price > cmd.maxPrice) reject('price-above-limit');
       spend(world, company, ship, price * cmd.qty);
       if (!site.isDeepMarket) {
@@ -221,8 +237,9 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (!(cmd.qty > 0)) reject('bad-quantity');
       if ((ship.cargo[cmd.good] ?? 0) < cmd.qty - 1e-9) reject('not-in-cargo');
       const e = site.market[cmd.good];
-      if (!site.isDeepMarket && cmd.qty > maxBuyQty(e) + 1e-9) reject('market-saturated');
-      const price = bidPrice(e, c, availableFunds(site), cmd.qty);
+      if (!site.isDeepMarket && cmd.qty > maxBuyQty(e, c.markets) + 1e-9)
+        reject('market-saturated');
+      const price = bidPrice(e, c.markets, availableFunds(site), cmd.qty);
       if (price <= 0) reject('no-demand');
       if (price < cmd.minPrice) reject('price-below-limit');
       if (!site.isDeepMarket) {
@@ -320,7 +337,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const contract = getContract(world, companyId, cmd.contractId);
       if (contract.status === 'loaded') reject('cargo-loaded');
       if (contract.status !== 'accepted') reject('not-accepted');
-      const penalty = contract.reward * CONTRACT_PENALTY_FRACTION;
+      const penalty = contract.reward * c.contracts.penaltyFraction;
       company.cash -= penalty;
       company.stats.costs += penalty;
       const ship = contract.shipId ? world.ships.get(contract.shipId) : undefined;
@@ -359,23 +376,10 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
         classId: cls.id,
         price: cls.price,
       });
-      world.schedule(world.jd + cls.buildDays, (w) => {
-        const s = w.ships.get(ship.id);
-        if (!s || s.state !== 'building') return;
-        s.state = 'docked';
-        s.intent = 'Idle';
-        w.events.append(w.jd, {
-          type: 'ShipDelivered',
-          shipId: s.id,
-          companyId: s.companyId,
-          settlementId: yard.id,
-        });
-        w.events.append(w.jd, {
-          type: 'ShipIdle',
-          shipId: s.id,
-          companyId: s.companyId,
-          settlementId: yard.id,
-        });
+      world.schedule(world.jd + cls.buildDays, {
+        kind: 'deliverShip',
+        shipId: ship.id,
+        siteId: yard.id,
       });
       return;
     }
@@ -384,7 +388,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const site = dockedAt(world, ship);
       if (cargoMass(ship) > 0) reject('ship-has-cargo');
       if (ship.contractId) reject('ship-has-contract');
-      const value = world.shipClassOf(ship).price * RESALE_FRACTION;
+      const value = world.shipClassOf(ship).price * c.ships.resaleFraction;
       earn(company, null, value);
       world.events.append(world.jd, {
         type: 'ShipSold',

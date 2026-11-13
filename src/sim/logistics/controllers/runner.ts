@@ -6,7 +6,6 @@ import { createCompanyView } from './view.ts';
 
 /** Controllers are woken at least once per this many days. */
 const PERIODIC_DAYS = 1;
-const FLEET_REVIEW_DAYS = 30;
 
 /**
  * Wire controllers into the tick loop: collect wake reasons from events, then let each
@@ -15,7 +14,7 @@ const FLEET_REVIEW_DAYS = 30;
 export function installControllers(
   world: LogisticsWorld,
   factory: (companyId: string) => CompanyController = () => new AiBrain(),
-): void {
+): Map<string, WakeReason[]> {
   for (const id of sortedIds(world.companies)) world.setController(id, factory(id));
   const pending = new Map<string, WakeReason[]>();
   const push = (companyId: string, r: WakeReason) => {
@@ -44,7 +43,7 @@ export function installControllers(
   world.addPhase('controllers', (w) => {
     const tick = Math.round((w.jd - w.config.startJd) / TICK_DAYS);
     const periodic = tick % Math.round(PERIODIC_DAYS / TICK_DAYS) === 0;
-    const fleet = tick % Math.round(FLEET_REVIEW_DAYS / TICK_DAYS) === 0;
+    const fleet = tick % Math.max(1, Math.round(w.constants.ai.fleetReviewDays / TICK_DAYS)) === 0;
     for (const id of sortedIds(w.companies)) {
       const company = w.companies.get(id)!;
       const controller = w.controllers.get(id);
@@ -57,4 +56,5 @@ export function installControllers(
       w.issue(id, controller.decide(createCompanyView(w, id), reasons));
     }
   });
+  return pending;
 }
