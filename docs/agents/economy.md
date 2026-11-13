@@ -86,6 +86,16 @@ flows all consume the same log. Events carry the ids they concern (`shipId`, `co
 A new event type needs: a union member, a `describeEvent` case in `ui/logistics/format.ts`
 (the switch is exhaustive) and, if it concerns new id fields, an update to `eventEntityIds`.
 
+The log (`EventLog`) keeps the last 10,000 events and the last 200 per entity in circular
+buffers. Per-entity histories of removed ships, completed or expired contracts and bankrupt
+companies are dropped 90 days after their terminal event, on both the worker and the replica.
+The running hash folds each event's fields directly (key order as built by the emitter, numbers
+by their float64 bits), so the key order of a payload is part of the determinism contract.
+
+`PriceChanged` is announced only when a price crosses into another band relative to the good's
+base price (`cheap` below 0.7×, `scarce` above 1.5×, with a 15% hysteresis margin) and at most
+once per 30 days per (settlement, good). Price history itself lives in the daily stats series.
+
 ## Commands: the only way companies act
 
 Companies never mutate the world. Their controller returns `Command[]`, and
@@ -141,5 +151,4 @@ later. Ship upkeep, docking fees and penalties are paid to no one; they are mone
 ## Known gaps (documented, not drift)
 
 Colony money drains to companies and Earth over the years (#11). Prices have no memory or
-order-size slippage (#15). Industry never expands (#14). `PriceChanged` events flood the log
-(#13).
+order-size slippage (#15). Industry never expands (#14).
