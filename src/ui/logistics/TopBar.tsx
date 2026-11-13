@@ -22,18 +22,26 @@ export function TopBar() {
   const series = leader ? (world.stats?.series('companyNetWorth', leader.id) ?? []) : [];
   const past = series.at(-31) ?? series[0];
   const trend = past && leader ? Math.sign(leader.worth - past.v) : 0;
-  const lagging = sim.lagDays > 0.5;
+  const lagging = sim.economyBehind;
   // Show the measured rate; name the requested preset when the economy can't keep up with it.
   const requested = sim.clock.rate;
   const achieved = sim.achievedRate || requested;
   const short = achieved < requested * 0.9;
   return (
     <header className="panel topbar" aria-label="Economy summary">
-      <span title="Measured simulation speed">
+      <span
+        title={`Measured simulation speed · economy on the ${sim.economyMode === 'worker' ? 'worker thread' : 'main thread'}`}
+      >
         <span className="muted">Speed </span>
         {sim.clock.paused ? 'paused' : formatRateValue(achieved)}
         {!sim.clock.paused && short && <span className="muted"> of {formatRate(requested)}</span>}
-        {lagging && <span className="tag tag--warn">economy catching up</span>}
+        {sim.economyError ? (
+          <span className="tag tag--warn" title={sim.economyError}>
+            economy stopped
+          </span>
+        ) : (
+          lagging && <span className="tag tag--warn">economy catching up</span>
+        )}
       </span>
       <span>
         <span className="muted">Trade, last year </span>

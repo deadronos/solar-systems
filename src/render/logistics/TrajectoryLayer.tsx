@@ -1,6 +1,6 @@
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
-import { BufferAttribute, BufferGeometry, Color, Line, LineBasicMaterial } from 'three';
+import { BufferAttribute, BufferGeometry, Line, LineBasicMaterial } from 'three';
 import { vec3 } from '../../sim/index.ts';
 import {
   evaluatePlan,
@@ -8,7 +8,7 @@ import {
   type TrajectoryPlan,
 } from '../../sim/logistics/index.ts';
 import { useSelectionStore } from '../../state/selectionStore.ts';
-import { UNITS_PER_KM } from '../coords.ts';
+import { relativeToScene, UNITS_PER_KM } from '../coords.ts';
 import { useRenderFrame, useSimulation } from '../SimulationContext.tsx';
 import { PRIORITY_SCENE } from '../scene/SimDriver.tsx';
 import { usePolledKeyed } from './usePolled.ts';
@@ -47,27 +47,48 @@ export function TrajectoryLayer() {
   );
 }
 
+/**
+ * Identity of a plan by value: the economy may live in a worker, in which case every update
+ * brings a fresh copy of the same plan.
+ */
+const planKey = (p: TrajectoryPlan) => `${p.fromSiteId}>${p.toSiteId}@${p.departJd}/${p.arriveJd}`;
+
+/**
+ * A line material that dims the part of the path already flown on the GPU: each vertex
+ * carries its time (days after departure) and `uNow` is the clock, so the CPU only sets two
+ * uniforms per frame.
+ */
+function trajectoryMaterial(): { material: LineBasicMaterial; uNow: { value: number } } {
+  const uNow = { value: 0 };
+  const material = new LineBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false });
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uNow = uNow;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nattribute float aTime;\nuniform float uNow;\nvarying float vPast;',
+      )
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPast = step(aTime, uNow);');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vPast;')
+      .replace(
+        'vec4 diffuseColor = vec4( diffuse, opacity );',
+        `vec4 diffuseColor = vec4( diffuse * mix( 1.0, ${PAST_DIM.toFixed(2)}, vPast ), opacity );`,
+      );
+  };
+  material.customProgramCacheKey = () => 'trajectory';
+  material.userData.uNow = uNow;
+  return { material, uNow };
+}
+
 function Trajectory({ shipId }: { shipId: string }) {
   const sim = useSimulation();
   const frame = useRenderFrame();
-  const cache = useRef<{ plan: TrajectoryPlan | null; samples: Float64Array; times: Float64Array }>(
-    {
-      plan: null,
-      samples: new Float64Array(SAMPLES * 3),
-      times: new Float64Array(SAMPLES),
-    },
-  );
   const line = useMemo(() => {
     const g = new BufferGeometry();
     g.setAttribute('position', new BufferAttribute(new Float32Array(SAMPLES * 3), 3));
-    g.setAttribute('color', new BufferAttribute(new Float32Array(SAMPLES * 3), 3));
-    const m = new LineBasicMaterial({
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.9,
-      depthWrite: false,
-    });
-    const l = new Line(g, m);
+    g.setAttribute('aTime', new BufferAttribute(new Float32Array(SAMPLES), 1));
+    const l = new Line(g, trajectoryMaterial().material);
     l.frustumCulled = false;
     return l;
   }, []);
@@ -79,8 +100,8 @@ function Trajectory({ shipId }: { shipId: string }) {
     [line],
   );
   const ref = useRef<Line>(null);
-  const color = useMemo(() => new Color(), []);
-  const p = useMemo(() => vec3(), []);
+  /** Plan currently uploaded, and its heliocentric anchor (km; the first sample). */
+  const state = useRef({ key: '', departJd: 0, anchor: vec3() });
 
   useFrame(() => {
     const l = ref.current;
@@ -91,40 +112,35 @@ function Trajectory({ shipId }: { shipId: string }) {
       return;
     }
     l.visible = true;
-    const c = cache.current;
-    if (c.plan !== ship.plan) {
-      // Resample in heliocentric float64 once per plan.
-      c.plan = ship.plan;
-      const { departJd, arriveJd } = ship.plan;
+    const plan = ship.plan;
+    const s = state.current;
+    const key = planKey(plan);
+    if (s.key !== key) {
+      // Upload once per plan: float64 samples relative to the anchor, then float32.
+      s.key = key;
+      s.departJd = plan.departJd;
+      const pos = l.geometry.attributes.position as BufferAttribute;
+      const time = l.geometry.attributes.aTime as BufferAttribute;
+      const pa = pos.array as Float32Array;
+      const ta = time.array as Float32Array;
+      const p = vec3();
       for (let i = 0; i < SAMPLES; i++) {
-        const t = departJd + ((arriveJd - departJd) * i) / (SAMPLES - 1);
-        c.times[i] = t;
-        evaluatePlan(ship.plan, t, sim.ephemeris, p);
-        c.samples[i * 3] = p.x;
-        c.samples[i * 3 + 1] = p.y;
-        c.samples[i * 3 + 2] = p.z;
+        const t = plan.departJd + ((plan.arriveJd - plan.departJd) * i) / (SAMPLES - 1);
+        evaluatePlan(plan, t, sim.ephemeris, p);
+        if (i === 0) Object.assign(s.anchor, p);
+        // Ecliptic (x, y, z) → scene (x, z, −y), in scene units.
+        pa[i * 3] = (p.x - s.anchor.x) * UNITS_PER_KM;
+        pa[i * 3 + 1] = (p.z - s.anchor.z) * UNITS_PER_KM;
+        pa[i * 3 + 2] = -(p.y - s.anchor.y) * UNITS_PER_KM;
+        ta[i] = t - plan.departJd;
       }
+      pos.needsUpdate = true;
+      time.needsUpdate = true;
       const company = world!.companies.get(ship.companyId);
-      color.set(company?.color ?? '#ffffff');
+      (l.material as LineBasicMaterial).color.set(company?.color ?? '#ffffff');
     }
-    const pos = l.geometry.attributes.position as BufferAttribute;
-    const col = l.geometry.attributes.color as BufferAttribute;
-    const pa = pos.array as Float32Array;
-    const ca = col.array as Float32Array;
-    const o = frame.origin;
-    const now = sim.clock.jd;
-    for (let i = 0; i < SAMPLES; i++) {
-      const k = i * 3;
-      pa[k] = (c.samples[k]! - o.x) * UNITS_PER_KM;
-      pa[k + 1] = (c.samples[k + 2]! - o.z) * UNITS_PER_KM;
-      pa[k + 2] = -(c.samples[k + 1]! - o.y) * UNITS_PER_KM;
-      const f = c.times[i]! < now ? PAST_DIM : 1;
-      ca[k] = color.r * f;
-      ca[k + 1] = color.g * f;
-      ca[k + 2] = color.b * f;
-    }
-    pos.needsUpdate = true;
-    col.needsUpdate = true;
+    relativeToScene(s.anchor, frame.origin, l.position);
+    (l.material as LineBasicMaterial).userData.uNow.value = sim.clock.jd - s.departJd;
   }, PRIORITY_SCENE);
 
   return <primitive ref={ref} object={line} />;
