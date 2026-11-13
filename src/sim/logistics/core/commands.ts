@@ -280,6 +280,8 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
     case 'DeliverContract': {
       const contract = getContract(world, companyId, cmd.contractId);
       if (contract.status !== 'accepted' && contract.status !== 'loaded') reject('not-deliverable');
+      // Freight must be the escrowed goods themselves, i.e. loaded at the pickup.
+      if (contract.kind === 'freight' && contract.status !== 'loaded') reject('not-loaded');
       const ship = getShip(world, companyId, contract.shipId ?? '');
       const site = dockedAt(world, ship);
       if (site.id !== contract.settlementId) reject('wrong-site');

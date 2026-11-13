@@ -6,10 +6,11 @@ import { describeEvent, fmtGood, fmtMoney, fmtTonnes } from '../format.ts';
 export function CompanyInspector({ id }: { id: string }) {
   useTick(3);
   const world = useWorld()!;
-  const c = world.companies.get(id)!;
-  const p = world.personalities.get(c.personalityId);
   const filter = useSelectionStore((s) => s.companyFilter);
   const setFilter = useSelectionStore((s) => s.setCompanyFilter);
+  const c = world.companies.get(id);
+  if (!c) return <p className="muted">This company no longer exists.</p>;
+  const p = world.personalities.get(c.personalityId);
   const worth = world.stats?.series('companyNetWorth', id).map((x) => x.v) ?? [];
   const contracts = [...world.contracts.values()].filter(
     (x) => x.companyId === id && (x.status === 'accepted' || x.status === 'loaded'),

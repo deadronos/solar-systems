@@ -201,6 +201,7 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
           source.s.treasury += source.price * qty;
         }
         addContract(world, {
+          escrowCost: source.price * qty,
           kind: 'freight',
           settlementId: buyer.id,
           pickupSettlementId: source.s.id,
@@ -220,6 +221,7 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
   const reward = unitReward * qty + (trip?.cost ?? 0) * FREIGHT_FEE_MARKUP * escalation;
   if (reward > budget) return;
   addContract(world, {
+    escrowCost: 0,
     kind: 'delivery',
     settlementId: buyer.id,
     pickupSettlementId: null,
@@ -232,7 +234,10 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
 
 function addContract(
   world: LogisticsWorld,
-  p: Pick<Contract, 'kind' | 'settlementId' | 'pickupSettlementId' | 'good' | 'qty' | 'reward'> & {
+  p: Pick<
+    Contract,
+    'kind' | 'settlementId' | 'pickupSettlementId' | 'good' | 'qty' | 'reward' | 'escrowCost'
+  > & {
     deadlineDays: number;
   },
 ): void {
@@ -249,6 +254,8 @@ function addContract(
     status: 'open',
     companyId: null,
     shipId: null,
+    escrowCost: p.escrowCost,
+    late: false,
   };
   world.contracts.set(contract.id, contract);
   world.events.append(world.jd, {
@@ -267,7 +274,7 @@ function addContract(
 /** Deadline handler: open → expired; accepted/loaded → expired with a carrier penalty. */
 export function expireContract(world: LogisticsWorld, contractId: string): void {
   const c = world.contracts.get(contractId);
-  if (!c || c.status === 'completed' || c.status === 'expired') return;
+  if (!c || c.status === 'completed' || c.status === 'expired' || c.late) return;
   let penalty = 0;
   const companyId = c.companyId;
   if (c.status === 'accepted' || c.status === 'loaded') {
@@ -277,13 +284,33 @@ export function expireContract(world: LogisticsWorld, contractId: string): void 
       company.cash -= penalty;
       company.stats.costs += penalty;
     }
+  }
+  // Loaded freight belongs to the buyer: it stays deliverable (late) instead of becoming
+  // the carrier's cargo to sell.
+  if (c.status === 'loaded') {
+    c.late = true;
+    world.events.append(world.jd, {
+      type: 'ContractExpired',
+      contractId: c.id,
+      settlementId: c.settlementId,
+      ...(companyId ? { companyId } : {}),
+      penalty,
+    });
+    return;
+  }
+  if (c.status === 'accepted') {
     const ship = c.shipId ? world.ships.get(c.shipId) : undefined;
     if (ship && ship.contractId === c.id) ship.contractId = null;
   }
-  // Escrowed freight that was never loaded returns to the pickup market.
-  if (c.kind === 'freight' && c.status !== 'loaded' && c.pickupSettlementId) {
+  // Escrowed freight that was never loaded: goods go back to the pickup, money back to the buyer.
+  if (c.kind === 'freight' && c.pickupSettlementId) {
     const pickup = world.settlements.get(c.pickupSettlementId);
-    if (pickup && !pickup.isDeepMarket) pickup.market[c.good].stock += c.qty;
+    const buyer = world.settlements.get(c.settlementId);
+    if (pickup && !pickup.isDeepMarket) {
+      pickup.market[c.good].stock += c.qty;
+      pickup.treasury -= c.escrowCost;
+    }
+    if (buyer) buyer.treasury += c.escrowCost;
   }
   if (c.status === 'open') {
     const buyer = world.settlements.get(c.settlementId);

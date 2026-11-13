@@ -4,7 +4,8 @@ import { describeEvent, fmtDays, fmtGood, fmtMoney, fmtTonnes } from '../format.
 export function ContractInspector({ id }: { id: string }) {
   useTick(3);
   const world = useWorld()!;
-  const c = world.contracts.get(id)!;
+  const c = world.contracts.get(id);
+  if (!c) return <p className="muted">This order no longer exists.</p>;
   const name = (x: string) => nameOf(world, x);
   return (
     <>

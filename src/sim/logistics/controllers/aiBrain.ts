@@ -77,7 +77,9 @@ export class AiBrain implements CompanyController {
     );
     // Forget jobs of ships that no longer exist.
     const alive = new Set(view.ships().map((s) => s.id));
-    for (const id of this.#jobs.keys()) if (!alive.has(id)) this.#jobs.delete(id);
+    for (const map of [this.#jobs, this.#nextLook, this.#lastBusy]) {
+      for (const id of map.keys()) if (!alive.has(id)) map.delete(id);
+    }
 
     for (const ship of view.ships().toSorted((a, b) => a.id.localeCompare(b.id))) {
       if (ship.state !== 'docked' || !ship.siteId || ship.pendingRemoval) continue;
@@ -92,6 +94,10 @@ export class AiBrain implements CompanyController {
 
   #step(view: CompanyView, ship: Readonly<Ship>, cmds: Command[]): void {
     const here = ship.siteId!;
+    // The world is the truth: a contract held by the ship is its job even if memory lost it.
+    if (ship.contractId && this.#jobs.get(ship.id)?.kind !== 'contract') {
+      this.#jobs.set(ship.id, { kind: 'contract', contractId: ship.contractId });
+    }
     const job = this.#jobs.get(ship.id);
     this.#nextLook.set(ship.id, view.jd + JOB_RETRY_DAYS);
 
@@ -256,9 +262,15 @@ export class AiBrain implements CompanyController {
       }
       if (held - qty > 1e-6) remaining = true;
     }
+    const sold = cmds.some((c) => c.type === 'SellCargo' && c.shipId === ship.id);
     if (!remaining) {
       view.setIntent(ship.id, `Sold cargo at ${view.settlement(here)?.name}`);
-      return false; // free for a new job this same decision? keep simple: next look
+      // Plan the next job on fresh state (after the sales apply), not in this decision.
+      if (sold) {
+        this.#nextLook.set(ship.id, view.jd);
+        return true;
+      }
+      return false;
     }
     // Route leftovers to the best paying market.
     let best: { id: string; value: number; good: GoodId } | null = null;

@@ -5,7 +5,8 @@ import { fmtGood, fmtMoney, fmtTonnes } from '../format.ts';
 export function SettlementInspector({ id }: { id: string }) {
   useTick(3);
   const world = useWorld()!;
-  const s = world.settlements.get(id)!;
+  const s = world.settlements.get(id);
+  if (!s) return <p className="muted">This place no longer exists.</p>;
   const stats = world.stats;
   const pop = stats?.series('settlementPopulation', id).map((x) => x.v) ?? [];
   const goods = GOOD_IDS.filter((g) => {

@@ -13,7 +13,8 @@ const TIER = ['', 'Chemical', 'Nuclear / ion', 'Fusion torch', 'Antimatter', 'Ju
 export function ShipInspector({ id }: { id: string }) {
   useTick(4);
   const world = useWorld()!;
-  const ship = world.ships.get(id)!;
+  const ship = world.ships.get(id);
+  if (!ship) return <p className="muted">This ship no longer exists.</p>;
   const cls = world.shipClassOf(ship);
   const cargo = Object.entries(ship.cargo).filter(([, q]) => (q ?? 0) > 0);
   const plan = ship.plan;

@@ -53,6 +53,9 @@ function bankrupt(world: LogisticsWorld, company: Company): void {
       c.companyId = null;
       c.shipId = null;
     } else if (c.status === 'loaded') {
+      // The cargo is lost with the carrier; the buyer is refunded its prepayment.
+      const buyer = world.settlements.get(c.settlementId);
+      if (buyer) buyer.treasury += c.escrowCost;
       c.status = 'expired';
       world.events.append(world.jd, {
         type: 'ContractExpired',

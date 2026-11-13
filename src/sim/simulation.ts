@@ -18,7 +18,14 @@ export interface SimulationOptions {
   scenario?: ScenarioConfig;
   /** Economy ticks processed per frame at most (keeps frames responsive). */
   maxTicksPerStep?: number;
+  /** Wall-clock budget (ms) for economy work per frame; the economy lags rather than stutters. */
+  maxStepMs?: number;
+  /** Time source for the budget (ms). Defaults to performance.now. */
+  now?: () => number;
 }
+
+/** Ticks processed between wall-clock budget checks. */
+const BUDGET_CHUNK_TICKS = 4;
 
 /** If the economy falls this far behind the clock, the clock waits for it. */
 const MAX_LAG_DAYS = 2;
@@ -37,6 +44,8 @@ export class Simulation {
   /** Smoothed achieved sim seconds per real second. */
   achievedRate = 0;
   readonly #maxTicksPerStep: number;
+  readonly #maxStepMs: number;
+  readonly #now: () => number;
 
   constructor(options: SimulationOptions = {}) {
     const startJd = options.scenario?.startJd ?? options.startJd;
@@ -47,6 +56,8 @@ export class Simulation {
       ? createWorld(options.scenario, this.ephemeris, { controllers: true })
       : null;
     this.#maxTicksPerStep = options.maxTicksPerStep ?? 400;
+    this.#maxStepMs = options.maxStepMs ?? 8;
+    this.#now = options.now ?? (() => performance.now());
     this.ephemeris.update(this.clock.jd);
   }
 
@@ -63,7 +74,17 @@ export class Simulation {
     }
     this.clock.tick(realDtSeconds);
     if (world) {
-      world.advanceTo(this.clock.jd, this.#maxTicksPerStep);
+      // Process ticks in small chunks until caught up, out of ticks or out of time.
+      const t0 = this.#now();
+      let ticks = 0;
+      while (ticks < this.#maxTicksPerStep) {
+        const n = world.advanceTo(
+          this.clock.jd,
+          Math.min(BUDGET_CHUNK_TICKS, this.#maxTicksPerStep - ticks),
+        );
+        ticks += n;
+        if (n === 0 || this.#now() - t0 >= this.#maxStepMs) break;
+      }
       this.lagDays = Math.max(0, this.clock.jd - world.jd);
       if (this.lagDays > MAX_LAG_DAYS) {
         this.clock.syncTo(world.jd + TICK_DAYS);

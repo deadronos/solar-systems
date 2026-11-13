@@ -203,6 +203,10 @@ export interface Contract {
   status: ContractStatus;
   companyId: string | null;
   shipId: string | null;
+  /** Freight: what the buyer prepaid the pickup for the goods (refunded if never loaded). */
+  escrowCost: number;
+  /** Past its deadline but still deliverable (loaded freight); the penalty was charged. */
+  late: boolean;
 }
 
 export interface EconomyConstants {
