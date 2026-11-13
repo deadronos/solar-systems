@@ -18,6 +18,7 @@ import {
   type ShipClass,
 } from '../economy/types.ts';
 import { EventLog, type EventLogState } from './events.ts';
+import { emptyLedger, type Ledger } from '../economy/money.ts';
 import { dispatchAction, type ScheduledAction } from './actions.ts';
 import type { CompanyController } from '../controllers/types.ts';
 import type { StatsRecorder } from '../economy/stats.ts';
@@ -42,6 +43,8 @@ export interface WorldState {
   companies: [string, Company][];
   ships: [string, Ship][];
   contracts: [string, Contract][];
+  /** Absent in snapshots from before the money ledger (#11). */
+  ledger?: Ledger;
 }
 
 function hashName(name: string): number {
@@ -68,6 +71,8 @@ export class LogisticsWorld {
   readonly controllers = new Map<string, CompanyController>();
   /** Observer for charts and trade flows (installed by createWorld). */
   stats: StatsRecorder | null = null;
+  /** Money that has entered or left the economy, by source (see `economy/money.ts`). */
+  ledger: Ledger = emptyLedger();
   #ids = new Map<string, number>();
   #nav: NavContext | null = null;
   readonly ephemeris: Ephemeris;
@@ -127,6 +132,7 @@ export class LogisticsWorld {
       companies: [...this.companies],
       ships: [...this.ships],
       contracts: [...this.contracts],
+      ledger: { ...this.ledger },
     };
   }
 
@@ -151,6 +157,7 @@ export class LogisticsWorld {
     for (const [id, company] of state.companies) this.companies.set(id, company);
     for (const [id, ship] of state.ships) this.ships.set(id, ship);
     for (const [id, contract] of state.contracts) this.contracts.set(id, contract);
+    this.ledger = { ...emptyLedger(), ...state.ledger };
   }
 
   /** Deterministic sequential id with a prefix, e.g. `ship-12`. */

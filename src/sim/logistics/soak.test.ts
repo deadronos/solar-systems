@@ -5,6 +5,7 @@ import { Ephemeris } from '../world/ephemeris.ts';
 import { START_JD } from './core/time.ts';
 import { createWorld } from './createWorld.ts';
 import { DEFAULT_SCENARIO } from './data/scenario.ts';
+import { ledgerTotal, moneySupply } from './economy/money.ts';
 import { outstanding } from './economy/treasury.ts';
 
 const eph = () => new Ephemeris(DEFAULT_CATALOG);
@@ -28,6 +29,17 @@ describe('20-year soak', () => {
     const starvingSince = new Map<string, number>();
     let maxStarvingDays = 0;
     let worst = '';
+    const supply0 = moneySupply(w);
+    const colonyCash = () =>
+      [...w.settlements.values()].reduce((a, s) => a + (s.isDeepMarket ? 0 : s.treasury), 0);
+    const colonyCash0 = colonyCash();
+    // Buy orders posted per year: the inter-colony market must not collapse (#11).
+    const buyOrders = Array.from({ length: 20 }, () => 0);
+    w.events.subscribe((e) => {
+      if (e.type === 'ContractPosted' && e.kind !== 'export') {
+        buyOrders[Math.min(19, Math.floor((e.jd - START_JD) / 365))]!++;
+      }
+    });
     for (let year = 0; year < 20; year++) {
       for (let day = 0; day < 365; day += 10) {
         w.advanceTo(START_JD + year * 365 + day + 10);
@@ -64,8 +76,14 @@ describe('20-year soak', () => {
           }
         }
         for (const co of w.companies.values()) expect(Number.isFinite(co.cash)).toBe(true);
+        // Money is conserved: every change in the supply is booked on a ledger line.
+        const drift = moneySupply(w) - supply0 - ledgerTotal(w.ledger);
+        expect(Math.abs(drift), `money drift at day ${w.jd - START_JD}`).toBeLessThan(1);
       }
     }
+    // Colony money and order volume stay roughly stationary instead of draining away.
+    expect(colonyCash()).toBeGreaterThan(0.4 * colonyCash0);
+    expect(buyOrders[18]! + buyOrders[19]!).toBeGreaterThanOrEqual(20);
     const active = [...w.companies.values()].filter((co) => co.status !== 'bankrupt');
     expect(active.length).toBeGreaterThanOrEqual(3);
     expect(w.settlements.get('mars-colony')!.population).toBeGreaterThan(marsStart);

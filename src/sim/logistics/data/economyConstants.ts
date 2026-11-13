@@ -14,6 +14,15 @@ export const ECONOMY_CONSTANTS: EconomyConstants = {
     maxStockMultiple: 3,
     /** Days of output producers keep before stock counts as surplus. */
     producerBufferDays: 15,
+    /** Deep market: net tonnes sold that move its price as far as 2× target stock would. */
+    deepMarketDepthT: 20_000,
+    /** Deep market: days for a trade's price impact to fade. */
+    deepMarketRecoveryDays: 90,
+    /** Deep market price clamps, as multiples of its reference price. */
+    deepPriceClampMin: 0.5,
+    deepPriceClampMax: 2,
+    /** Earth charter bounty to the origin colony, as a share of base price per tonne sold to Earth. */
+    earthExportBounty: 0.2,
   },
   population: {
     /** Smoothing window for need satisfaction and market flow estimates. */
@@ -23,6 +32,8 @@ export const ECONOMY_CONSTANTS: EconomyConstants = {
     maxEmigrationPerYear: 0.15,
     workforceFraction: 0.5,
     stipendPerCapitaPerDay: 5,
+    /** Extra stipend as a share of the colony's daily output value at base prices. */
+    stipendGdpFraction: 0.05,
     /** Minimum starting stock expressed as days of survival demand. */
     initialReserveDays: 365,
     /** Days over which to spread demand for housing materials. */
@@ -71,9 +82,17 @@ export const ECONOMY_CONSTANTS: EconomyConstants = {
     survivalTreasuryReserveDays: 365,
     /** Share of the reward charged for abandonment or expiry after acceptance. */
     penaltyFraction: 0.1,
+    /** A producer posts a sell order for stock above this multiple of its target stock. */
+    sellOrderStockMultiple: 2,
+    /** Discount on the local ask that a sell order offers carriers. */
+    sellOrderDiscount: 0.15,
+    /** Smallest sell order worth posting (tonnes). */
+    minSellOrderT: 50,
   },
   ships: {
     dockingFee: 5_000,
+    /** Share of a new ship's price paid to the shipyard settlement; the rest buys Earth-made parts. */
+    shipyardShare: 0.5,
     /** Multiplier on base fuel price for emergency refuelling. */
     emergencyFuelFactor: 3,
     /** Share of the ship list price recovered by resale. */

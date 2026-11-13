@@ -14,6 +14,7 @@ const GROUPS: Record<Exclude<Group, 'all'>, EventType[]> = {
     'ContractCompleted',
     'ContractExpired',
     'ContractAbandoned',
+    'SellOrderFilled',
   ],
   fleet: [
     'ShipOrdered',

@@ -1,5 +1,5 @@
 import { EntityLink, nameOf, useTick, useWorld } from '../common.tsx';
-import { describeEvent, fmtDays, fmtGood, fmtMoney, fmtTonnes } from '../format.ts';
+import { describeEvent, fmtDays, fmtGood, fmtMoney, fmtTonnes, orderValue } from '../format.ts';
 
 export function ContractInspector({ id }: { id: string }) {
   useTick(3);
@@ -17,15 +17,17 @@ export function ContractInspector({ id }: { id: string }) {
       </header>
       <p className="muted">
         {c.kind === 'freight'
-          ? 'Freight: the buyer has already paid for the goods at the pickup; the carrier only hauls them.'
-          : 'Delivery: the carrier sources the goods wherever it likes and is paid on delivery.'}
+          ? 'Freight: the buyer pays the pickup for the goods at loading; the carrier only hauls them.'
+          : c.kind === 'export'
+            ? 'Sell order: the settlement offers surplus at a discount; the carrier pays on loading and sells the goods wherever it likes.'
+            : 'Delivery: the carrier sources the goods wherever it likes and is paid on delivery.'}
       </p>
       <dl className="kv">
-        <dt>Buyer</dt>
+        <dt>{c.kind === 'export' ? 'Seller' : 'Buyer'}</dt>
         <dd>
           <EntityLink refTo={{ kind: 'settlement', id: c.settlementId }} />
         </dd>
-        {c.pickupSettlementId && (
+        {c.pickupSettlementId && c.kind !== 'export' && (
           <>
             <dt>Pickup</dt>
             <dd>
@@ -33,8 +35,8 @@ export function ContractInspector({ id }: { id: string }) {
             </dd>
           </>
         )}
-        <dt>{c.kind === 'freight' ? 'Fee' : 'Reward'}</dt>
-        <dd>{fmtMoney(c.reward)}</dd>
+        <dt>{c.kind === 'freight' ? 'Fee' : c.kind === 'export' ? 'Price' : 'Reward'}</dt>
+        <dd>{fmtMoney(orderValue(c))}</dd>
         <dt>Deadline</dt>
         <dd>{c.deadlineJd > world.jd ? `in ${fmtDays(c.deadlineJd - world.jd)}` : 'passed'}</dd>
         {c.companyId && (

@@ -21,7 +21,10 @@ export function release(s: Settlement, amount: number): void {
 
 /**
  * What a buyer still owes on a contract: the reward, plus freight escrow until the goods
- * are loaded (escrow is paid to the pickup at loading).
+ * are loaded (escrow is paid to the pickup at loading). A seller owes nothing on its own
+ * export order.
  */
 export const outstanding = (c: Contract): number =>
-  c.reward + (c.kind === 'freight' && c.status !== 'loaded' ? c.escrowCost : 0);
+  c.kind === 'export'
+    ? 0
+    : c.reward + (c.kind === 'freight' && c.status !== 'loaded' ? c.escrowCost : 0);

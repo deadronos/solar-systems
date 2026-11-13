@@ -1,7 +1,9 @@
 import { TICK_DAYS } from '../core/time.ts';
 import { sortedIds } from '../core/sortedIds.ts';
 import type { LogisticsWorld } from '../core/world.ts';
-import { askPrice, spareStock } from './markets.ts';
+import { penaltyFor } from '../core/commands.ts';
+import { askPrice, recordDeepTrade, spareStock } from './markets.ts';
+import { companyPays, creditSettlement } from './money.ts';
 import { availableFunds, commit, outstanding, release } from './treasury.ts';
 import { GOOD_IDS, type Contract, type GoodId, type Settlement } from './types.ts';
 
@@ -12,24 +14,26 @@ const PRUNE_AFTER_DAYS = 90;
 
 /** Tonnes already contracted (open, accepted or loaded) to a settlement for a good. */
 export function inboundQty(world: LogisticsWorld, settlementId: string, good: GoodId): number {
-  return inboundTotals(world).get(inboundKey(settlementId, good)) ?? 0;
+  return liveOrders(world).inbound.get(orderKey(settlementId, good)) ?? 0;
 }
 
-const inboundKey = (settlementId: string, good: GoodId) => `${settlementId}|${good}`;
+const orderKey = (settlementId: string, good: GoodId) => `${settlementId}|${good}`;
 
 /**
- * Tonnes on live contracts per (settlement, good), in one pass over the contract table.
- * Sums accumulate in table order, so each total matches a per-pair scan exactly.
+ * Tonnes on live buy orders per (settlement, good), and the pairs with a live sell order, in
+ * one pass over the contract table. Sums accumulate in table order, so each total matches a
+ * per-pair scan exactly.
  */
-function inboundTotals(world: LogisticsWorld): Map<string, number> {
-  const totals = new Map<string, number>();
+function liveOrders(world: LogisticsWorld): { inbound: Map<string, number>; selling: Set<string> } {
+  const inbound = new Map<string, number>();
+  const selling = new Set<string>();
   for (const c of world.contracts.values()) {
-    if (c.status === 'open' || c.status === 'accepted' || c.status === 'loaded') {
-      const key = inboundKey(c.settlementId, c.good);
-      totals.set(key, (totals.get(key) ?? 0) + c.qty);
-    }
+    if (c.status !== 'open' && c.status !== 'accepted' && c.status !== 'loaded') continue;
+    const key = orderKey(c.settlementId, c.good);
+    if (c.kind === 'export') selling.add(key);
+    else inbound.set(key, (inbound.get(key) ?? 0) + c.qty);
   }
-  return totals;
+  return { inbound, selling };
 }
 
 /**
@@ -143,13 +147,13 @@ function post(
     if (local) {
       const qty = Math.min(want, Math.floor((budget - 2 * dockingFee) / local.price));
       if (qty >= 1) {
+        // The neighbour is paid for the goods and its port fees.
         const cost = local.price * qty + 2 * dockingFee;
-        buyer.treasury -= cost;
+        creditSettlement(world, buyer, -cost);
+        creditSettlement(world, local.s, cost);
         e.stock += qty;
-        if (!local.s.isDeepMarket) {
-          local.s.market[good].stock -= qty;
-          local.s.treasury += local.price * qty;
-        }
+        if (!local.s.isDeepMarket) local.s.market[good].stock -= qty;
+        recordDeepTrade(local.s, good, -qty);
         world.events.append(world.jd, {
           type: 'LocalShuttle',
           settlementId: buyer.id,
@@ -167,7 +171,7 @@ function post(
   const lead = bestSource(world, buyer, good, Math.min(c.maxContractQtyT, e.targetStock));
   const leadDays = lead ? lead.trip.days : c.defaultLeadDays;
   const desired = e.targetStock + e.consumptionPerDay * leadDays;
-  const projected = e.stock + (inbound.get(inboundKey(buyer.id, good)) ?? 0);
+  const projected = e.stock + (inbound.get(orderKey(buyer.id, good)) ?? 0);
   if (projected >= c.postThreshold * desired) return;
   let qty = Math.min(c.maxContractQtyT, Math.ceil(desired - projected));
   const premium = c.contractPremium * (buyer.inShortage ? c.shortagePremiumFactor : 1);
@@ -218,6 +222,39 @@ function post(
   });
 }
 
+/**
+ * A producer offers stock above `sellOrderStockMultiple` × target to carriers at a discount
+ * (a sell order), at most one live order per good. The goods are reserved until it ends.
+ */
+function postSellOrder(
+  world: LogisticsWorld,
+  seller: Settlement,
+  good: GoodId,
+  selling: ReadonlySet<string>,
+): void {
+  const c = world.constants.contracts;
+  const e = seller.market[good];
+  if (e.targetStock <= 0 || e.productionPerDay <= e.consumptionPerDay) return;
+  if (selling.has(orderKey(seller.id, good))) return;
+  const qty = Math.min(
+    c.maxContractQtyT,
+    Math.floor(e.stock - c.sellOrderStockMultiple * e.targetStock),
+  );
+  if (qty < c.minSellOrderT) return;
+  const unitPrice = askPrice(e, world.constants.markets) * (1 - c.sellOrderDiscount);
+  e.stock -= qty;
+  addContract(world, {
+    escrowCost: unitPrice * qty,
+    kind: 'export',
+    settlementId: seller.id,
+    pickupSettlementId: seller.id,
+    good,
+    qty,
+    reward: 0,
+    deadlineDays: c.minDeadlineDays,
+  });
+}
+
 function addContract(
   world: LogisticsWorld,
   p: Pick<
@@ -255,23 +292,26 @@ function addContract(
     reward: contract.reward,
     kind: contract.kind,
     ...(contract.pickupSettlementId ? { pickupSettlementId: contract.pickupSettlementId } : {}),
+    ...(contract.kind === 'export' ? { price: contract.escrowCost } : {}),
   });
   world.schedule(contract.deadlineJd, { kind: 'expireContract', contractId: contract.id });
 }
 
-/** Deadline handler: open → expired; accepted/loaded → expired with a carrier penalty. */
+/**
+ * Deadline handler: open → expired; accepted/loaded → expired with a carrier penalty, paid
+ * to the settlement that posted the order.
+ */
 export function expireContract(world: LogisticsWorld, contractId: string): void {
   const c = world.contracts.get(contractId);
   if (!c || c.status === 'completed' || c.status === 'expired' || c.late) return;
   let penalty = 0;
   const companyId = c.companyId;
   if (c.status === 'accepted' || c.status === 'loaded') {
-    penalty = c.reward * world.constants.contracts.penaltyFraction;
+    penalty = penaltyFor(world, c);
     const company = companyId ? world.companies.get(companyId) : undefined;
-    if (company) {
-      company.cash -= penalty;
-      company.stats.costs += penalty;
-    }
+    const poster = world.settlements.get(c.settlementId);
+    if (company && poster) companyPays(world, company, null, poster, penalty);
+    else penalty = 0;
   }
   // Loaded freight belongs to the buyer: it stays deliverable (late) instead of becoming
   // the carrier's cargo to sell.
@@ -293,12 +333,12 @@ export function expireContract(world: LogisticsWorld, contractId: string): void 
   const buyer = world.settlements.get(c.settlementId);
   // The buyer's promise lapses (nothing was paid yet: escrow is only paid at loading).
   if (buyer) release(buyer, outstanding(c));
-  // Reserved freight that was never loaded goes back to the pickup's stock.
-  if (c.kind === 'freight' && c.pickupSettlementId) {
+  // Reserved goods that were never loaded go back to the pickup's stock.
+  if (c.kind !== 'delivery' && c.pickupSettlementId) {
     const pickup = world.settlements.get(c.pickupSettlementId);
     if (pickup && !pickup.isDeepMarket) pickup.market[c.good].stock += c.qty;
   }
-  if (c.status === 'open') {
+  if (c.status === 'open' && c.kind !== 'export') {
     if (buyer) {
       buyer.orderEscalation[c.good] = Math.min(
         world.constants.contracts.escalationCap,
@@ -316,7 +356,7 @@ export function expireContract(world: LogisticsWorld, contractId: string): void 
   });
 }
 
-/** Post contracts for shortages (once per day). */
+/** Post buy orders for shortages and sell orders for surpluses (once per day). */
 export function generateContracts(world: LogisticsWorld): void {
   const ticksPerRun = Math.round(GENERATION_INTERVAL_DAYS / TICK_DAYS);
   const tick = Math.round((world.jd - world.config.startJd) / TICK_DAYS);
@@ -332,14 +372,14 @@ export function generateContracts(world: LogisticsWorld): void {
   }
   // Each post() adds contracts only for its own (settlement, good), so totals taken once here
   // stay exact for every pair visited after it.
-  const inbound = inboundTotals(world);
+  const { inbound, selling } = liveOrders(world);
   for (const id of sortedIds(world.settlements)) {
     const s = world.settlements.get(id)!;
     if (s.isDeepMarket) continue;
     for (const g of GOOD_IDS) {
-      if (s.market[g].consumptionPerDay <= 0) continue;
       // Open orders count as inbound, so this posts more only while still short.
-      post(world, s, g, inbound);
+      if (s.market[g].consumptionPerDay > 0) post(world, s, g, inbound);
+      postSellOrder(world, s, g, selling);
     }
   }
 }

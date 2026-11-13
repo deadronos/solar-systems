@@ -81,6 +81,11 @@ export interface MarketEntry {
   lastAnnouncedPrice: number;
   /** Date of that announcement; absent until the first one (and in older snapshots). */
   lastAnnouncedJd?: number;
+  /**
+   * Deep market only: recent net tonnes traders sold to it (negative: bought), decaying over
+   * `markets.deepMarketRecoveryDays`. Moves its price, so Earth is not a fixed anchor.
+   */
+  netSoldT?: number;
 }
 
 export interface Satisfaction {
@@ -170,6 +175,11 @@ export interface Ship {
   plan: TrajectoryPlan | null;
   cargo: Partial<Record<GoodId, number>>;
   contractId: string | null;
+  /**
+   * Colony each cargo good was last bought at, for the Earth charter's export bounty. Absent
+   * for goods bought at a deep market (and in older snapshots).
+   */
+  cargoOrigin?: Partial<Record<GoodId, string>>;
   intent: string;
   pendingRemoval: boolean;
   /** Day the ship last became idle (for utilisation). */
@@ -192,13 +202,18 @@ export interface Company {
   stats: { revenue: number; costs: number; tradesCompleted: number; contractsCompleted: number };
 }
 
-export type ContractKind = 'delivery' | 'freight';
+/**
+ * `delivery` and `freight` are buy orders. `export` is a colony's sell order: `settlementId`
+ * (= `pickupSettlementId`) is the seller, the goods are reserved, and the carrier pays
+ * `escrowCost` for them on loading, which completes the order.
+ */
+export type ContractKind = 'delivery' | 'freight' | 'export';
 export type ContractStatus = 'open' | 'accepted' | 'loaded' | 'completed' | 'expired';
 
 export interface Contract {
   id: string;
   kind: ContractKind;
-  /** Buyer and destination. */
+  /** Buyer and destination (the seller for an export order). */
   settlementId: string;
   /** Freight only: where the pre-purchased cargo waits. */
   pickupSettlementId: string | null;
@@ -210,7 +225,10 @@ export interface Contract {
   status: ContractStatus;
   companyId: string | null;
   shipId: string | null;
-  /** Freight: what the buyer prepaid the pickup for the goods (refunded if never loaded). */
+  /**
+   * Freight: what the buyer pays the pickup for the goods at loading. Export: what the
+   * carrier pays the seller at loading.
+   */
   escrowCost: number;
   /** Past its deadline but still deliverable (loaded freight); the penalty was charged. */
   late: boolean;
@@ -226,6 +244,11 @@ export interface EconomyConstants {
     deepMarketStock: number;
     maxStockMultiple: number;
     producerBufferDays: number;
+    deepMarketDepthT: number;
+    deepMarketRecoveryDays: number;
+    deepPriceClampMin: number;
+    deepPriceClampMax: number;
+    earthExportBounty: number;
   };
   population: {
     satisfactionEmaDays: number;
@@ -234,6 +257,7 @@ export interface EconomyConstants {
     maxEmigrationPerYear: number;
     workforceFraction: number;
     stipendPerCapitaPerDay: number;
+    stipendGdpFraction: number;
     initialReserveDays: number;
     housingDemandDays: number;
     baselineGrowthWeight: number;
@@ -259,9 +283,13 @@ export interface EconomyConstants {
     nonSurvivalTreasuryFraction: number;
     survivalTreasuryReserveDays: number;
     penaltyFraction: number;
+    sellOrderStockMultiple: number;
+    sellOrderDiscount: number;
+    minSellOrderT: number;
   };
   ships: {
     dockingFee: number;
+    shipyardShare: number;
     emergencyFuelFactor: number;
     resaleFraction: number;
   };

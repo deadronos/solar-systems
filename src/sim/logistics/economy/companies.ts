@@ -1,6 +1,7 @@
 import { removeShip } from '../core/commands.ts';
 import { sortedIds } from '../core/sortedIds.ts';
 import type { LogisticsWorld } from '../core/world.ts';
+import { buyShip, creditSettlement, external } from './money.ts';
 import { release } from './treasury.ts';
 import type { Company, ShipClass } from './types.ts';
 
@@ -55,10 +56,11 @@ function bankrupt(world: LogisticsWorld, company: Company): void {
       c.companyId = null;
       c.shipId = null;
     } else if (c.status === 'loaded') {
-      // The cargo is lost with the carrier; the buyer is refunded its prepayment.
+      // The cargo is lost with the carrier, which owes the buyer its prepayment.
       const buyer = world.settlements.get(c.settlementId);
       if (buyer) {
-        buyer.treasury += c.escrowCost;
+        company.cash -= c.escrowCost;
+        creditSettlement(world, buyer, c.escrowCost);
         release(buyer, c.reward);
       }
       c.status = 'expired';
@@ -107,6 +109,7 @@ export function spawnEntrant(world: LogisticsWorld): Company {
     stats: { revenue: 0, costs: 0, tradesCompleted: 0, contractsCompleted: 0 },
   };
   world.companies.set(company.id, company);
+  external(world, 'entrants', company.cash);
   world.events.append(world.jd, { type: 'CompanyFounded', companyId: company.id });
 
   const affordable = (c: ShipClass) => c.price <= company.cash * 0.5;
@@ -118,8 +121,7 @@ export function spawnEntrant(world: LogisticsWorld): Company {
     .map((id) => world.settlements.get(id)!)
     .find((s) => s.isShipyard);
   if (cls && yard) {
-    company.cash -= cls.price;
-    company.stats.costs += cls.price;
+    buyShip(world, company, yard, cls.price);
     const ship = world.addShip(
       company,
       cls.id,

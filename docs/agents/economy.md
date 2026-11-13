@@ -4,7 +4,7 @@ The economy's world model, tick loop, determinism rules, markets, contracts and 
 this before changing anything in `src/sim/logistics/{core,economy,data}` or `createWorld.ts`.
 
 **Source of truth:** `src/sim/logistics/core/{world,scheduler,actions,events,commands,time}.ts`,
-`src/sim/logistics/createWorld.ts`, `src/sim/logistics/economy/*.ts`,
+`src/sim/logistics/createWorld.ts`, `src/sim/logistics/economy/*.ts` (money: `money.ts`),
 `src/sim/logistics/data/*.ts`.
 
 Related: [navigation.md](navigation.md) (trip planning), [controllers.md](controllers.md)
@@ -18,8 +18,8 @@ Related: [navigation.md](navigation.md) (trip planning), [controllers.md](contro
 clone. Ids are deterministic (`world.nextId('ship')` → `ship-12`).
 
 The scenario (`data/scenario.ts` → `DEFAULT_SCENARIO`) is pure data: 2040 start, 14 goods,
-recipes, 9 settlements (Earth Exchange is the **deep market**: infinite treasury and fixed
-prices), 8 ship classes across 5 engine tiers, personalities and starting companies.
+recipes, 9 settlements (Earth Exchange is the **deep market**: unlimited stock and money,
+outside the economy's ledger, with prices that move only with recent trade), 8 ship classes across 5 engine tiers, personalities and starting companies.
 
 Scenario balance settings live in `ScenarioConfig.constants`, grouped into `markets`,
 `population`, `contracts`, `ships`, `companies`, `ai` and `nav`. Defaults are defined in
@@ -72,6 +72,7 @@ JSON round trip, `restoreWorld(snapshot, ephemeris)` resumes a standard `createW
 using the same ephemeris catalog. The snapshot includes the scenario, entity tables, ID
 counters, named RNG states, scheduled actions, event hash and histories, stats and AI state.
 In the snapshot, `treasury: null` represents the unlimited deep-market treasury.
+`restoreWorld` fills balance settings missing from an older snapshot's config with defaults.
 
 The snapshot API supports standard phase wiring with built-in AI or controllers disabled.
 It rejects replica state, extra tick phases and custom controllers. External event listeners
@@ -109,6 +110,10 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
 
 - **Market entry per good:** `stock`, `targetStock`, `price`, EMA `consumptionPerDay` and
   `productionPerDay`.
+  - **Deep market:** stock stays unlimited, but `netSoldT` (net tonnes traders sold to it,
+    decaying over `markets.deepMarketRecoveryDays`) moves its price:
+    `deepPriceFor` = reference × ((depth + netSoldT)/depth)^−elasticity, clamped to
+    [`deepPriceClampMin`, `deepPriceClampMax`]. Every trade with it calls `recordDeepTrade`.
   - `priceFor` = base × (stock/target)^−elasticity, clamped to [0.25, 4]× base by default.
   - Settlements sell at `askPrice` (+spread/2) and buy at `bidPrice` (−spread/2). They buy
     only if they consume the good and can pay from **available funds**, and only up to
@@ -120,7 +125,8 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
   - Consumes survival, basic and comfort needs, and updates satisfaction EMAs.
   - Grows, or emigrates below the survival threshold (people leave; nobody dies).
   - Expands housing from goods; survival facilities scale with housing.
-  - Collects the Earth stipend, the colonies' only income besides sales.
+  - Collects the Earth charter stipend: `stipendPerCapitaPerDay` per head plus
+    `stipendGdpFraction` of the day's output value at base prices.
 
 ## Contracts (orders) and settlement money
 
@@ -132,9 +138,15 @@ falls below `contracts.postThreshold` times the desired level (half by default):
 - **Freight**: goods are _reserved_ at the cheapest source (stock removed). The buyer pays the
   escrow to the source **at loading** and pays the carrier's fee on delivery.
 - **Delivery**: the carrier sources the goods anywhere; the buyer pays the reward on delivery.
-- Unfilled orders expire and are reposted with fees raised by 1.5× per expiry (capped at 8× by default).
-  Accepted contracts that expire penalise the carrier, and loaded freight stays deliverable
-  ("late").
+- **Sell order** (`kind: 'export'`): a producer with stock above `sellOrderStockMultiple` ×
+  target offers the excess (at most one live order per good, ≥ `minSellOrderT`) at
+  `sellOrderDiscount` below its ask. The goods are reserved. The carrier pays `escrowCost`
+  on `LoadContractCargo`, which completes the order (`SellOrderFilled`) and makes the goods
+  ordinary cargo. Sell orders are not inbound supply and owe nothing (`outstanding` = 0).
+- Unfilled buy orders expire and are reposted with fees raised by 1.5× per expiry (capped at 8× by default).
+  Accepted contracts that expire, or are abandoned, fine the carrier `penaltyFraction` of the
+  reward (of the price, for sell orders), paid to the settlement that posted the order.
+  Loaded freight stays deliverable ("late").
 
 **Treasury invariant** (`economy/treasury.ts`): every promise to a live contract is
 `settlement.committed`, equal to the sum of `outstanding(c)` (reward, plus escrow until
@@ -142,14 +154,35 @@ loaded). Spending decisions use `availableFunds(s) = max(0, treasury − committ
 you add a payment path, `commit` it at posting and `release` it on payment or expiry. The soak
 test enforces `treasury ≥ 0` and `committed == Σ outstanding`.
 
+## Money conservation (#11)
+
+Money inside the economy is company cash plus colony treasuries (`moneySupply`). Every
+payment between them goes through `economy/money.ts` (`companyPays`, `creditSettlement`,
+`buyShip`), so money only appears or disappears on a **ledger line** (`world.ledger`, kept in
+snapshots): `stipend`, `charter` (export bounty), `earth` (trade with a deep market), `shipyard`
+(the Earth-made share of new ships, and resale) and `entrants` (seed capital). The soak test
+checks `moneySupply − start == ledgerTotal(ledger)` at every step. Any new payment path must use
+the helpers: paying a deep market directly would break the invariant.
+
+Where money goes:
+
+- Docking fees, fuel (emergency supply included) and exotic propellant go to the port.
+- Ship upkeep is wages, paid to where the ship is, or the port it last left.
+- Penalties go to the settlement that posted the order.
+- A new ship pays `ships.shipyardShare` of its price to the yard; the rest leaves the economy.
+- Selling to Earth earns the colony the goods were bought at (`ship.cargoOrigin`) a charter
+  bounty of `markets.earthExportBounty` × base price per tonne.
+- A bankrupt carrier's lost freight is charged to the company, which refunds the buyer.
+
 ## Companies
 
 `companies.ts`: cash below 0 → `distress`. Still below 0 after `companies.bankruptcyGraceDays` →
 `bankrupt`: accepted contracts reopen, loaded freight is lost and the buyer refunded, and
 ships are removed (in-flight ones on arrival). A new entrant spawns `companies.entrantDelayDays`
-later. Ship upkeep, docking fees and penalties are paid to no one; they are money sinks (#11).
+later.
 
 ## Known gaps (documented, not drift)
 
-Colony money drains to companies and Earth over the years (#11). Prices have no memory or
-order-size slippage (#15). Industry never expands (#14).
+Colony money now holds roughly steady in total (#11), but it pools at the shipyard colony
+(Ceres) because settlements only spend on imports they are short of, and never invest (#14).
+Most sell orders expire unfilled. Prices have no memory or order-size slippage (#15).

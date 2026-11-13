@@ -1,4 +1,9 @@
-import { fmtMoney, fmtTonnes, type LogisticsEvent } from '../../sim/logistics/index.ts';
+import {
+  fmtMoney,
+  fmtTonnes,
+  type Contract,
+  type LogisticsEvent,
+} from '../../sim/logistics/index.ts';
 
 export { fmtMoney, fmtTonnes };
 
@@ -10,6 +15,10 @@ export function fmtDays(d: number): string {
 }
 
 export const fmtGood = (g: string) => g.replaceAll('_', ' ');
+
+/** Money an order is worth: the carrier's reward, or the price of a sell order's goods. */
+export const orderValue = (c: Pick<Contract, 'kind' | 'reward' | 'escrowCost'>): number =>
+  c.kind === 'export' ? c.escrowCost : c.reward;
 
 /** Plain-language one-liner for the activity feed. `name` resolves ids to display names. */
 export function describeEvent(e: LogisticsEvent, name: (id: string) => string): string {
@@ -29,7 +38,11 @@ export function describeEvent(e: LogisticsEvent, name: (id: string) => string): 
     case 'FuelPurchased':
       return `${name(e.shipId)} fuelled up at ${name(e.settlementId)} (${fmtMoney(e.cost)})`;
     case 'ContractPosted':
-      return `${name(e.settlementId)} wants ${fmtTonnes(e.qty)} ${fmtGood(e.good)} — ${e.kind}, ${fmtMoney(e.reward)}`;
+      return e.kind === 'export'
+        ? `${name(e.settlementId)} offers ${fmtTonnes(e.qty)} ${fmtGood(e.good)} for ${fmtMoney(e.price ?? 0)}`
+        : `${name(e.settlementId)} wants ${fmtTonnes(e.qty)} ${fmtGood(e.good)} — ${e.kind}, ${fmtMoney(e.reward)}`;
+    case 'SellOrderFilled':
+      return `${name(e.shipId)} bought ${fmtTonnes(e.qty)} ${fmtGood(e.good)} on ${name(e.settlementId)}'s sell order (${fmtMoney(e.price)}/t)`;
     case 'ContractAccepted':
       return `${name(e.companyId)} took the ${name(e.settlementId)} order with ${name(e.shipId)}`;
     case 'ContractCompleted':

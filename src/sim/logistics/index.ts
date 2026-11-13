@@ -14,6 +14,13 @@ export { askPrice, bidPrice, maxBuyQty, priceFor } from './economy/markets.ts';
 export { applyCommand, cargoMass, removeShip, type Command } from './core/commands.ts';
 export { inboundQty } from './economy/contracts.ts';
 export { netWorth, spawnEntrant } from './economy/companies.ts';
+export {
+  LEDGER_LINES,
+  ledgerTotal,
+  moneySupply,
+  type Ledger,
+  type LedgerLine,
+} from './economy/money.ts';
 export { AiBrain, riskAdjustedProfit } from './controllers/aiBrain.ts';
 export { installControllers } from './controllers/runner.ts';
 export { createCompanyView } from './controllers/view.ts';

@@ -1,7 +1,7 @@
 import { netWorth } from '../../../sim/logistics/index.ts';
 import { useSelectionStore } from '../../../state/selectionStore.ts';
 import { EntityLink, nameOf, Sparkline, useTick, useWorld } from '../common.tsx';
-import { describeEvent, fmtGood, fmtMoney, fmtTonnes } from '../format.ts';
+import { describeEvent, fmtGood, fmtMoney, fmtTonnes, orderValue } from '../format.ts';
 
 export function CompanyInspector({ id }: { id: string }) {
   useTick(3);
@@ -69,8 +69,8 @@ export function CompanyInspector({ id }: { id: string }) {
             {contracts.map((x) => (
               <li key={x.id}>
                 <EntityLink refTo={{ kind: 'contract', id: x.id }}>
-                  {fmtTonnes(x.qty)} {fmtGood(x.good)} → {name(x.settlementId)} ·{' '}
-                  {fmtMoney(x.reward)}
+                  {fmtTonnes(x.qty)} {fmtGood(x.good)} {x.kind === 'export' ? 'from' : '→'}{' '}
+                  {name(x.settlementId)} · {fmtMoney(orderValue(x))}
                 </EntityLink>
               </li>
             ))}
