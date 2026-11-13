@@ -86,14 +86,8 @@ export function runPopulation(s: Settlement, world: LogisticsWorld, dtDays: numb
     for (const i of hb.inputs) addDemand(s, i.good, (i.qty * dtDays) / c.housingDemandDays);
     if (hb.inputs.every((i) => s.market[i.good].stock >= i.qty)) {
       for (const i of hb.inputs) s.market[i.good].stock -= i.qty;
+      // Life support for new districts is an investment like any other (#14).
       s.housingCapacity *= 1 + hb.capacityGainFraction;
-      // New districts come with matching life support (farms, recyclers, ice plants).
-      for (const f of s.facilities) {
-        const r = world.recipes.get(f.recipeId);
-        if (r?.outputs.some((o) => world.goods.get(o.good)?.category === 'survival')) {
-          f.maxRatePerDay *= 1 + hb.capacityGainFraction;
-        }
-      }
       world.events.append(world.jd, {
         type: 'HousingExpanded',
         settlementId: s.id,

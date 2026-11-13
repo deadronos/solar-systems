@@ -46,7 +46,7 @@ Fixed **6-hour ticks** (`TICK_DAYS = 0.25`), never skipped or resized. `advanceT
 1. Run scheduled actions due before the tick's end, in (jd, insertion) order (`Scheduler`, a
    binary heap). A discriminated action record identifies the domain operation and its arguments.
 2. Advance the clock, then run the phases installed by `createWorld`, in this order:
-   **population → production → markets → contracts → ships → companies → stats → controllers**.
+   **population → production → investment → markets → contracts → ships → companies → stats → controllers**.
 
 Daily work (contract generation, stats samples, periodic controller wake-ups) is gated on
 `tick % ticksPerDay === 0`, computed from `(jd − startJd) / TICK_DAYS`.
@@ -121,12 +121,42 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
 - **Production** (`production.ts`): life-support recipes get workers and inputs first.
   Output is limited by capacity, workers and input stock. Nominal input demand is recorded
   even when inputs are missing, so shortages show up as prices.
+  - **Life-support reserve:** other recipes may only use stock above
+    `industry.survivalInputReserveDays` of the people's survival needs plus the inputs local
+    life support uses at capacity (water → fuel, ice → fuel), and record demand only for what
+    they use of those goods, so industry never drives survival imports.
+  - **Maintenance:** employed workers wear out `industry.maintenancePerWorkerDay` of
+    machinery. A shortfall wears every facility's capacity by up to `wearPerYear`
+    (compounding per tick, floored at `minRatePerDay`).
+  - Each facility keeps a rolling `utilisation`; `idleWorkers` records unemployment.
 - **Population** (`population.ts`):
   - Consumes survival, basic and comfort needs, and updates satisfaction EMAs.
   - Grows, or emigrates below the survival threshold (people leave; nobody dies).
-  - Expands housing from goods; survival facilities scale with housing.
+  - Expands housing from goods. Life support for the new districts is an investment (below).
   - Collects the Earth charter stipend: `stipendPerCapitaPerDay` per head plus
     `stipendGdpFraction` of the day's output value at base prices.
+
+## Investment (`investment.ts`, #14)
+
+Every `industry.reviewDays` (gated on the tick, like contract generation), a settlement with
+no project and idle workers evaluates every recipe in sorted id order:
+
+- **Expand** an existing facility running at ≥ `minUtilisation`, by `expansionFraction`.
+- **Build** a new one sized for up to `newFacilityWorkers` idle workers. Processing recipes
+  can be built anywhere; extraction recipes (no inputs) only on the site's `deposits`.
+- **Margin per day** = added rate × (outputs − inputs) − maintenance. Output is worth the
+  local price while local use exceeds local output, otherwise Earth's price ×
+  `exportNetback`. Inputs that local output can't cover cost the import price (the dearer
+  of local and Earth's).
+- A **build kit** (`kitPerWorker` × added workers: machinery and steel) must be affordable
+  from funds beyond the survival reserve and pay back within `maxPaybackDays`.
+- **Urgent life support** (a survival output below `survivalMargin` × consumption) wins
+  regardless of margin, but only if its inputs are produced locally.
+
+The chosen project (`settlement.project`) emits `InvestmentDecision` with a plain reason. Its
+kit is added to demand over `kitDemandDays`, so the settlement imports it through ordinary
+buy orders. When the kit is in stock it is consumed and `FacilityBuilt` fires. After
+`projectTimeoutDays` without the kit, `InvestmentAbandoned`.
 
 ## Contracts (orders) and settlement money
 
@@ -183,6 +213,6 @@ later.
 
 ## Known gaps (documented, not drift)
 
-Colony money now holds roughly steady in total (#11), but it pools at the shipyard colony
-(Ceres) because settlements only spend on imports they are short of, and never invest (#14).
-Most sell orders expire unfilled. Prices have no memory or order-size slippage (#15).
+Colony money holds roughly steady in total (#11), but it still pools at Ceres (the shipyard
+colony and the largest exporter). Most sell orders expire unfilled. Investment only adds
+capacity; nothing closes an unprofitable facility. Prices have no memory or order-size slippage (#15).

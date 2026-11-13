@@ -10,6 +10,9 @@ Working notes on which open issues to tackle next (as of 2026-11-13). Not a desi
   settlements; GDP stipend; Earth export bounty; colony sell orders; price-elastic Earth;
   half of each ship's price to the yard. Colony money is steady in total but pools at Ceres
   (needs #14). Most sell orders expire unfilled.
+- Branch `feat/investment`: #14 settlements invest (expand or build facilities from imported
+  kits), machinery maintenance and wear, life-support reserve in production. Population 70k
+  → 69k at year 20 with almost no shortages; fleet grows to ~63 ships.
 
 Every remaining issue is labelled `explore`: each needs a design decision before code (see
 `docs/agents/workflow.md`). The options below are starting points for that decision.
@@ -29,7 +32,7 @@ pooling and the low sell-order fill rate.
   the stipend with population or GDP.
 - Decide the money-flow model first: it shapes #14, #15 and #16.
 
-**#14 Settlements invest in industry**: only housing grows today, and industry is frozen at 2040.
+**#14**: done on `feat/investment`. Original notes: only housing grew, and industry is frozen at 2040.
 Depends on #11 (colonies need money to invest). Options: buy machinery and habitat modules from the
 treasury, driven by local prices; give facilities depreciation so machinery has steady demand.
 

@@ -26,7 +26,15 @@ const GROUPS: Record<Exclude<Group, 'all'>, EventType[]> = {
     'CompanyRecovered',
     'CompanyBankrupt',
   ],
-  places: ['Shortage', 'ShortageResolved', 'PopulationMilestone', 'HousingExpanded'],
+  places: [
+    'Shortage',
+    'ShortageResolved',
+    'PopulationMilestone',
+    'HousingExpanded',
+    'InvestmentDecision',
+    'FacilityBuilt',
+    'InvestmentAbandoned',
+  ],
 };
 /** Noise kept out of the feed by default. */
 const HIDDEN = new Set<EventType>([

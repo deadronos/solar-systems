@@ -69,6 +69,7 @@ export const SETTLEMENTS: SettlementDef[] = [
     treasury: 80_000_000,
     isShipyard: false,
     isDeepMarket: false,
+    deposits: ['mine_regolith', 'harvest_ice'],
   },
   {
     id: 'mars-colony',
@@ -102,6 +103,7 @@ export const SETTLEMENTS: SettlementDef[] = [
     treasury: 400_000_000,
     isShipyard: false,
     isDeepMarket: false,
+    deposits: ['harvest_ice', 'mine_ore', 'mine_regolith'],
   },
   {
     id: 'phobos-station',
@@ -121,6 +123,7 @@ export const SETTLEMENTS: SettlementDef[] = [
     treasury: 20_000_000,
     isShipyard: false,
     isDeepMarket: false,
+    deposits: ['harvest_ice', 'mine_regolith'],
   },
   {
     id: 'ceres-colony',
@@ -147,6 +150,7 @@ export const SETTLEMENTS: SettlementDef[] = [
     treasury: 150_000_000,
     isShipyard: true,
     isDeepMarket: false,
+    deposits: ['harvest_ice', 'mine_regolith', 'mine_ore'],
   },
   {
     id: 'vesta-mines',
@@ -168,6 +172,7 @@ export const SETTLEMENTS: SettlementDef[] = [
     treasury: 40_000_000,
     isShipyard: false,
     isDeepMarket: false,
+    deposits: ['harvest_ice', 'mine_regolith', 'mine_ore', 'mine_rare'],
   },
   {
     id: 'psyche-mines',
@@ -189,6 +194,7 @@ export const SETTLEMENTS: SettlementDef[] = [
     treasury: 40_000_000,
     isShipyard: false,
     isDeepMarket: false,
+    deposits: ['harvest_ice', 'mine_ore', 'mine_rare'],
   },
   {
     id: 'callisto-outpost',
@@ -208,5 +214,6 @@ export const SETTLEMENTS: SettlementDef[] = [
     treasury: 15_000_000,
     isShipyard: false,
     isDeepMarket: false,
+    deposits: ['harvest_ice', 'mine_regolith'],
   },
 ];

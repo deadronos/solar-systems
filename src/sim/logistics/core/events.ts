@@ -128,6 +128,24 @@ export type EventPayload =
   | { type: 'ShortageResolved'; settlementId: string; tier: 'survival' }
   | { type: 'PopulationMilestone'; settlementId: string; population: number }
   | { type: 'HousingExpanded'; settlementId: string; capacity: number }
+  | {
+      type: 'InvestmentDecision';
+      settlementId: string;
+      recipeId: string;
+      /** Batches per day the project adds. */
+      ratePerDay: number;
+      isNew: boolean;
+      reason: string;
+    }
+  | {
+      type: 'FacilityBuilt';
+      settlementId: string;
+      recipeId: string;
+      /** The facility's capacity after the project, batches per day. */
+      ratePerDay: number;
+      isNew: boolean;
+    }
+  | { type: 'InvestmentAbandoned'; settlementId: string; recipeId: string }
   | { type: 'CompanyFounded'; companyId: string }
   | { type: 'CompanyInDistress'; companyId: string; cash: number }
   | { type: 'CompanyRecovered'; companyId: string; cash: number }

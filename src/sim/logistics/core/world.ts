@@ -313,6 +313,8 @@ function createSettlement(def: SettlementDef, world: LogisticsWorld): Settlement
     inShortage: false,
     orderEscalation: {},
     committed: 0,
+    idleWorkers: 0,
+    project: null,
     lastMilestone: Math.floor(def.population / 10_000),
   };
 }

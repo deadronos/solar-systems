@@ -89,6 +89,39 @@ export const ECONOMY_CONSTANTS: EconomyConstants = {
     /** Smallest sell order worth posting (tonnes). */
     minSellOrderT: 50,
   },
+  industry: {
+    /** Days between a settlement's investment reviews. */
+    reviewDays: 30,
+    /** Capacity an expansion adds, as a share of the facility's current capacity. */
+    expansionFraction: 0.1,
+    /** Workforce a new facility is sized for (fewer if fewer are idle). */
+    newFacilityWorkers: 100,
+    /** Build kit per worker of added capacity (tonnes). */
+    kitPerWorker: [
+      { good: 'machinery', qty: 1 },
+      { good: 'steel', qty: 4 },
+    ],
+    /** Days over which kit demand is spread, so imports are ordered steadily. */
+    kitDemandDays: 60,
+    /** A project whose kit hasn't arrived after this many days is dropped. */
+    projectTimeoutDays: 730,
+    /** Longest acceptable payback of the kit cost from the added margin. */
+    maxPaybackDays: 1_095,
+    /** Value of output nobody uses locally, as a share of Earth's price (hauling costs). */
+    exportNetback: 0.6,
+    /** Survival production below this multiple of consumption makes life support urgent. */
+    survivalMargin: 1.05,
+    /** Expand only facilities that run at least this share of capacity. */
+    minUtilisation: 0.85,
+    /** Machinery each employed worker wears out per day (tonnes). */
+    maintenancePerWorkerDay: 0.000_2,
+    /** Capacity lost per year by a facility with no maintenance machinery at all. */
+    wearPerYear: 0.05,
+    /** Facilities never wear below this many batches per day. */
+    minRatePerDay: 0.1,
+    /** Days of the people's survival needs that industry may not use as inputs. */
+    survivalInputReserveDays: 60,
+  },
   ships: {
     dockingFee: 5_000,
     /** Share of a new ship's price paid to the shipyard settlement; the rest buys Earth-made parts. */

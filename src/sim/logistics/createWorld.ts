@@ -10,13 +10,14 @@ import { initMarketRates, updateMarket } from './economy/markets.ts';
 import { StatsRecorder, type StatsState } from './economy/stats.ts';
 import { TICK_DAYS } from './core/time.ts';
 import { runPopulation } from './economy/population.ts';
+import { runInvestment } from './economy/investment.ts';
 import { runProduction } from './economy/production.ts';
 import { ECONOMY_CONSTANTS } from './data/economyConstants.ts';
 import type { EconomyConstants, ScenarioConfig } from './economy/types.ts';
 
 /**
  * Build a world and install every system in the fixed tick order:
- * population (life support first) → production → markets → contracts → ships → companies →
+ * population (life support first) → production → investment → markets → contracts → ships → companies →
  * stats → controllers.
  */
 export interface CreateWorldOptions {
@@ -47,6 +48,7 @@ export function createWorld(
   world.addPhase('production', (w, dt) => {
     for (const id of settlementIds()) runProduction(w.settlements.get(id)!, w, dt);
   });
+  world.addPhase('investment', (w, dt) => runInvestment(w, dt));
   world.addPhase('markets', (w, dt) => {
     for (const id of settlementIds()) updateMarket(w.settlements.get(id)!, w, dt);
   });
