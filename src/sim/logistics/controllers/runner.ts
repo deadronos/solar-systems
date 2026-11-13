@@ -1,12 +1,12 @@
 import { TICK_DAYS } from '../core/time.ts';
 import { sortedIds, type LogisticsWorld } from '../core/world.ts';
 import { AiBrain } from './aiBrain.ts';
+import { FLEET_REVIEW_DAYS } from './timing.ts';
 import type { CompanyController, WakeReason } from './types.ts';
 import { createCompanyView } from './view.ts';
 
 /** Controllers are woken at least once per this many days. */
 const PERIODIC_DAYS = 1;
-const FLEET_REVIEW_DAYS = 30;
 
 /**
  * Wire controllers into the tick loop: collect wake reasons from events, then let each

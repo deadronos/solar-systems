@@ -1,7 +1,7 @@
 import { CONTRACT_PENALTY_FRACTION } from '../core/commands.ts';
 import { TICK_DAYS } from '../core/time.ts';
 import { sortedIds, type LogisticsWorld } from '../core/world.ts';
-import { askPrice } from './markets.ts';
+import { askPrice, spareStock } from './markets.ts';
 import { availableFunds, commit, outstanding, release } from './treasury.ts';
 import { GOOD_IDS, type Contract, type GoodId, type Settlement } from './types.ts';
 
@@ -20,8 +20,6 @@ const ESCALATION_CAP = 8;
 const FREIGHT_FEE_MARKUP = 1.5;
 /** Floor on the haul cost used to price a contract, so short hops are still worth a ship. */
 const MIN_HAUL_COST = 50_000;
-/** A source must keep at least this fraction of its own target stock. */
-const SOURCE_RESERVE = 0.5;
 /** Finished contracts are forgotten after this many days. */
 const PRUNE_AFTER_DAYS = 90;
 /** Largest single contract (tonnes) — bigger needs are split over successive postings. */
@@ -79,9 +77,7 @@ function bestLocalSource(world: LogisticsWorld, buyer: Settlement, good: GoodId,
     const s = world.settlements.get(id)!;
     if (s.id === buyer.id || s.site.bodyId !== buyer.site.bodyId) continue;
     const e = s.market[good];
-    const spare = s.isDeepMarket
-      ? Number.POSITIVE_INFINITY
-      : e.stock - SOURCE_RESERVE * e.targetStock;
+    const spare = spareStock(s, good);
     if (spare < qty) continue;
     const price = askPrice(e, world.constants);
     if (!best || price < best.price) best = { s, price };
@@ -108,9 +104,7 @@ function bestSource(
     if (id === buyer.id) continue;
     const s = world.settlements.get(id)!;
     const e = s.market[good];
-    const spare = s.isDeepMarket
-      ? Number.POSITIVE_INFINITY
-      : e.stock - SOURCE_RESERVE * e.targetStock;
+    const spare = spareStock(s, good);
     if (spare < qty || (!s.isDeepMarket && e.productionPerDay <= 0)) continue;
     const trip = tripCostAndDays(world, s, buyer, qty);
     if (!trip) continue;

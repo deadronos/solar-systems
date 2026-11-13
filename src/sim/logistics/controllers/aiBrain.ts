@@ -1,4 +1,5 @@
-import type { Command } from '../core/commands.ts';
+import { cargoMass, type Command } from '../core/commands.ts';
+import { spareStock } from '../economy/markets.ts';
 import {
   GOOD_IDS,
   type Contract,
@@ -6,7 +7,9 @@ import {
   type Ship,
   type ShipClass,
 } from '../economy/types.ts';
+import { fmtMoney, fmtTonnes } from '../format.ts';
 import type { TripEstimate } from '../navigation/planner.ts';
+import { FLEET_REVIEW_DAYS } from './timing.ts';
 import type { CompanyController, CompanyView, WakeReason } from './types.ts';
 
 type Job =
@@ -28,26 +31,8 @@ const JOB_RETRY_DAYS = 2;
 const MIN_LOAD_FRACTION = 0.05;
 /** Days of fleet upkeep kept as a cash reserve. */
 const RESERVE_DAYS = 30;
-const FLEET_REVIEW_DAYS = 30;
 /** Top raw opportunities that get a (more expensive) trip estimate. */
 const TOP_K = 6;
-/** Docking fee assumed per leg when costing a plan. */
-const DOCKING_FEE_ESTIMATE = 5_000;
-
-const fmtMoney = (v: number): string => {
-  const a = Math.abs(v);
-  const s =
-    a >= 1e9
-      ? `${(a / 1e9).toFixed(1)}B`
-      : a >= 1e6
-        ? `${(a / 1e6).toFixed(1)}M`
-        : a >= 1e3
-          ? `${(a / 1e3).toFixed(0)}k`
-          : a.toFixed(0);
-  return `${v < 0 ? '−' : ''}₡${s}`;
-};
-/** Same output as `toLocaleString('en-US')` for integers, without the Intl cost. */
-const fmtT = (t: number) => `${String(Math.round(t)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} t`;
 
 /** Expected profit after discounting revenue for price risk over the trip length. */
 export function riskAdjustedProfit(
@@ -58,9 +43,6 @@ export function riskAdjustedProfit(
 ): number {
   return revenue * (1 - riskAversion * Math.min(1, days / 365)) - cost;
 }
-
-const cargoMass = (ship: Readonly<Ship>) =>
-  Object.values(ship.cargo).reduce((a, b) => a + (b ?? 0), 0);
 
 /**
  * Default company brain: greedy, explainable job selection for idle ships plus periodic
@@ -121,7 +103,7 @@ export class AiBrain implements CompanyController {
         if (this.#dispatch(view, ship, job.destId, cmds)) {
           view.setIntent(
             ship.id,
-            `Hauling ${fmtT(held)} ${job.good} → ${view.settlement(job.destId)?.name}`,
+            `Hauling ${fmtTonnes(held)} ${job.good} → ${view.settlement(job.destId)?.name}`,
           );
           return;
         }
@@ -155,7 +137,7 @@ export class AiBrain implements CompanyController {
     const here = ship.siteId!;
     const dest = view.settlement(c.settlementId)!;
     const held = ship.cargo[c.good] ?? 0;
-    const label = `Contract: ${fmtT(c.qty)} ${c.good} → ${dest.name} for ${fmtMoney(c.reward)}`;
+    const label = `Contract: ${fmtTonnes(c.qty)} ${c.good} → ${dest.name} for ${fmtMoney(c.reward)}`;
     if (held >= c.qty - 1e-9) {
       if (here === c.settlementId) {
         cmds.push({ type: 'DeliverContract', contractId: c.id });
@@ -247,7 +229,7 @@ export class AiBrain implements CompanyController {
     job.buyPrice = ask;
     view.setIntent(
       ship.id,
-      `Trade: ${fmtT(qty)} ${job.good} ${view.settlement(here)?.name} ${fmtMoney(ask)}/t → ${view.settlement(job.destId)?.name}`,
+      `Trade: ${fmtTonnes(qty)} ${job.good} ${view.settlement(here)?.name} ${fmtMoney(ask)}/t → ${view.settlement(job.destId)?.name}`,
     );
     return true;
   }
@@ -370,7 +352,7 @@ export class AiBrain implements CompanyController {
       cands.push({
         score,
         label: () =>
-          `Contract: ${fmtT(c.qty)} ${c.good} → ${view.settlement(c.settlementId)?.name} (+${fmtMoney(profit)} est.)`,
+          `Contract: ${fmtTonnes(c.qty)} ${c.good} → ${view.settlement(c.settlementId)?.name} (+${fmtMoney(profit)} est.)`,
         execute: () => {
           this.#jobs.set(ship.id, { kind: 'contract', contractId: c.id });
           const out: Command[] = [{ type: 'AcceptContract', contractId: c.id, shipId: ship.id }];
@@ -490,7 +472,7 @@ export class AiBrain implements CompanyController {
       days += est.arriveJd - view.jd;
       cost += this.#fuelCost(view, a, est);
     }
-    cost += cls.upkeepPerDay * days + DOCKING_FEE_ESTIMATE * legs.length;
+    cost += cls.upkeepPerDay * days + view.dockingFee * legs.length;
     return { days, cost };
   }
 
@@ -512,10 +494,7 @@ export class AiBrain implements CompanyController {
 
   #spare(view: CompanyView, siteId: string, good: GoodId): number {
     const s = view.settlement(siteId);
-    if (!s) return 0;
-    if (s.isDeepMarket) return Number.POSITIVE_INFINITY;
-    const e = view.market(siteId, good);
-    return e.stock - 0.5 * e.targetStock;
+    return s ? spareStock(s, good) : 0;
   }
 
   /** Source minimising goods cost + travel cost for this ship (then on to `dest`). */

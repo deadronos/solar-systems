@@ -1,5 +1,11 @@
 import type { LogisticsWorld } from '../core/world.ts';
-import { GOOD_IDS, type EconomyConstants, type MarketEntry, type Settlement } from './types.ts';
+import {
+  GOOD_IDS,
+  type EconomyConstants,
+  type GoodId,
+  type MarketEntry,
+  type Settlement,
+} from './types.ts';
 
 /** Settlements stop buying once stock reaches this multiple of target stock. */
 const MAX_STOCK_MULTIPLE = 3;
@@ -7,6 +13,18 @@ const MAX_STOCK_MULTIPLE = 3;
 const ANNOUNCE_THRESHOLD = 0.25;
 /** Producers keep this many days of their own output before stock counts as surplus. */
 const PRODUCER_BUFFER_DAYS = 15;
+/** A source must keep at least this fraction of its own target stock. */
+const SOURCE_RESERVE = 0.5;
+
+/** Tonnes above a source's reserve. A negative value means the reserve is short. */
+export function spareStock(
+  site: Pick<Settlement, 'isDeepMarket' | 'market'>,
+  good: GoodId,
+): number {
+  if (site.isDeepMarket) return Number.POSITIVE_INFINITY;
+  const entry = site.market[good];
+  return entry.stock - SOURCE_RESERVE * entry.targetStock;
+}
 
 /** Desired stock: own needs for the buffer period plus a short buffer of own output. */
 export const targetFor = (

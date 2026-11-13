@@ -46,7 +46,7 @@ const reject = (reason: string): never => {
   throw new Rejection(reason);
 };
 
-export const cargoMass = (ship: Ship): number =>
+export const cargoMass = (ship: Pick<Ship, 'cargo'>): number =>
   Object.values(ship.cargo).reduce((a, b) => a + (b ?? 0), 0);
 
 function getShip(world: LogisticsWorld, companyId: string, shipId: string): Ship {

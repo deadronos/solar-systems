@@ -26,6 +26,7 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
 
   return {
     jd: world.jd,
+    dockingFee: c.dockingFee,
     company,
     personality,
     ships: () => company.shipIds.map((id) => world.ships.get(id)!).filter(Boolean),

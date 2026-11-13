@@ -4,7 +4,7 @@ How companies make decisions: the controller interface, the company view, wake-u
 batches and the default AI. Read this before changing `src/sim/logistics/controllers/*`,
 adding a command, or building a player or alternative controller.
 
-**Source of truth:** `src/sim/logistics/controllers/{types,view,runner,aiBrain}.ts`,
+**Source of truth:** `src/sim/logistics/controllers/{types,view,runner,aiBrain,timing}.ts`,
 `src/sim/logistics/core/commands.ts` (`Command`, `applyCommands`).
 
 ## The seam
@@ -23,7 +23,8 @@ interface CompanyController {
   once per tick, in sorted id order, during the `controllers` phase (the last one).
   To add a wake reason, add it to `WakeReason` _and_ emit it in `installControllers`.
 - **`CompanyView`** (`createCompanyView`) is a company-scoped window: own ships, settlements,
-  open contracts, market quotes (`ask`, `bid`, `demandRoom`), trip estimates and fuel prices.
+  open contracts, market quotes (`ask`, `bid`, `demandRoom`), trip estimates, fuel prices and
+  the scenario docking fee.
   Quotes use the same functions as command validation, so a decision made on the view matches
   what the command will see. Same tick, same state.
 - The view's objects are **typed `Readonly` but are the live world objects**. Never mutate them.
@@ -52,7 +53,8 @@ To add a command: add a union member to `Command`, a `case` in `apply()` that va
   2. Otherwise sell any unassigned cargo here or route it to the best buyer.
   3. Otherwise pick the best-scoring candidate.
 - **Candidates and scoring:**
-  - Open contracts are costed per ship, using landed source cost plus legs.
+  - Open contracts are costed per ship, using landed source cost plus the cost of each leg.
+    Contract and trade estimates include the scenario docking fee per leg.
   - Trades come from here, or after repositioning to a cheap source. The top 6 raw margins get
     a real trip estimate.
   - The score is profit per day, weighted by the company's personality (`contractVsTradeBias`,
@@ -69,5 +71,3 @@ To add a command: add a union member to `Command`, a `case` in `apply()` that va
 ## Known gaps (documented, not drift)
 
 - Companies don't see each other's inbound cargo and can herd onto the same sale (#16).
-- `AiBrain` duplicates some helpers and constants from commands and UI (`cargoMass`,
-  `fmtMoney`, `DOCKING_FEE_ESTIMATE`) (#29).

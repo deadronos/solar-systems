@@ -20,6 +20,7 @@ export type WakeReason =
 /** Read-only, company-scoped window on the world. The only mutation is a ship's intent text. */
 export interface CompanyView {
   readonly jd: number;
+  readonly dockingFee: number;
   readonly company: Readonly<Company>;
   readonly personality: Personality;
   ships(): readonly Readonly<Ship>[];

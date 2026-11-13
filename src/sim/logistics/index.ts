@@ -1,6 +1,7 @@
 /** Public API of the logistics simulation layer. */
 export * from './core/time.ts';
 export * from './core/events.ts';
+export { fmtMoney, fmtTonnes } from './format.ts';
 export { Scheduler } from './core/scheduler.ts';
 export * from './core/world.ts';
 export * from './economy/types.ts';
