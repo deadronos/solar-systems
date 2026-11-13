@@ -12,17 +12,24 @@ const PRUNE_AFTER_DAYS = 90;
 
 /** Tonnes already contracted (open, accepted or loaded) to a settlement for a good. */
 export function inboundQty(world: LogisticsWorld, settlementId: string, good: GoodId): number {
-  let q = 0;
+  return inboundTotals(world).get(inboundKey(settlementId, good)) ?? 0;
+}
+
+const inboundKey = (settlementId: string, good: GoodId) => `${settlementId}|${good}`;
+
+/**
+ * Tonnes on live contracts per (settlement, good), in one pass over the contract table.
+ * Sums accumulate in table order, so each total matches a per-pair scan exactly.
+ */
+function inboundTotals(world: LogisticsWorld): Map<string, number> {
+  const totals = new Map<string, number>();
   for (const c of world.contracts.values()) {
-    if (
-      c.settlementId === settlementId &&
-      c.good === good &&
-      (c.status === 'open' || c.status === 'accepted' || c.status === 'loaded')
-    ) {
-      q += c.qty;
+    if (c.status === 'open' || c.status === 'accepted' || c.status === 'loaded') {
+      const key = inboundKey(c.settlementId, c.good);
+      totals.set(key, (totals.get(key) ?? 0) + c.qty);
     }
   }
-  return q;
+  return totals;
 }
 
 /**
@@ -108,7 +115,12 @@ function survivalReserve(world: LogisticsWorld, s: Settlement): number {
   return perDay * c.contracts.survivalTreasuryReserveDays;
 }
 
-function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
+function post(
+  world: LogisticsWorld,
+  buyer: Settlement,
+  good: GoodId,
+  inbound: ReadonlyMap<string, number>,
+): void {
   const c = world.constants.contracts;
   const { dockingFee } = world.constants.ships;
   const e = buyer.market[good];
@@ -155,7 +167,7 @@ function post(world: LogisticsWorld, buyer: Settlement, good: GoodId): void {
   const lead = bestSource(world, buyer, good, Math.min(c.maxContractQtyT, e.targetStock));
   const leadDays = lead ? lead.trip.days : c.defaultLeadDays;
   const desired = e.targetStock + e.consumptionPerDay * leadDays;
-  const projected = e.stock + inboundQty(world, buyer.id, good);
+  const projected = e.stock + (inbound.get(inboundKey(buyer.id, good)) ?? 0);
   if (projected >= c.postThreshold * desired) return;
   let qty = Math.min(c.maxContractQtyT, Math.ceil(desired - projected));
   const premium = c.contractPremium * (buyer.inShortage ? c.shortagePremiumFactor : 1);
@@ -318,13 +330,16 @@ export function generateContracts(world: LogisticsWorld): void {
       world.contracts.delete(id);
     }
   }
+  // Each post() adds contracts only for its own (settlement, good), so totals taken once here
+  // stay exact for every pair visited after it.
+  const inbound = inboundTotals(world);
   for (const id of sortedIds(world.settlements)) {
     const s = world.settlements.get(id)!;
     if (s.isDeepMarket) continue;
     for (const g of GOOD_IDS) {
       if (s.market[g].consumptionPerDay <= 0) continue;
       // Open orders count as inbound, so this posts more only while still short.
-      post(world, s, g);
+      post(world, s, g, inbound);
     }
   }
 }

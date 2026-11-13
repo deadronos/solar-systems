@@ -1,11 +1,30 @@
 import type { LogisticsWorld } from '../core/world.ts';
 import { addDemand, addSupply } from './markets.ts';
-import type { Settlement } from './types.ts';
+import type { Facility, Settlement } from './types.ts';
 
 const producesSurvival = (world: LogisticsWorld, recipeId: string): boolean =>
   world.recipes
     .get(recipeId)
     ?.outputs.some((o) => world.goods.get(o.good)?.category === 'survival') ?? false;
+
+/**
+ * Survival-first facility order per world and facilities array (facilities never change today).
+ * Keyed by world too: settlements share their scenario's array, but recipes are per world.
+ */
+const orderCache = new WeakMap<LogisticsWorld, WeakMap<readonly Facility[], readonly Facility[]>>();
+
+function survivalFirstOrder(s: Settlement, world: LogisticsWorld): readonly Facility[] {
+  let cache = orderCache.get(world);
+  if (!cache) orderCache.set(world, (cache = new WeakMap()));
+  const cached = cache.get(s.facilities);
+  if (cached && cached.length === s.facilities.length) return cached;
+  const order = s.facilities.toSorted(
+    (a, b) =>
+      Number(producesSurvival(world, b.recipeId)) - Number(producesSurvival(world, a.recipeId)),
+  );
+  cache.set(s.facilities, order);
+  return order;
+}
 
 /**
  * Run facilities (life support first, otherwise in declared order). Output is limited by capacity, available workers
@@ -16,11 +35,7 @@ export function runProduction(s: Settlement, world: LogisticsWorld, dtDays: numb
   if (s.isDeepMarket) return;
   let workers = s.population * world.constants.population.workforceFraction;
   // Life support first: recipes that output survival goods get workers and inputs first.
-  const survivalFirst = s.facilities.toSorted(
-    (a, b) =>
-      Number(producesSurvival(world, b.recipeId)) - Number(producesSurvival(world, a.recipeId)),
-  );
-  for (const f of survivalFirst) {
+  for (const f of survivalFirstOrder(s, world)) {
     const recipe = world.recipes.get(f.recipeId);
     if (!recipe) continue;
     let rate = f.maxRatePerDay;
