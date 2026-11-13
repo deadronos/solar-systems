@@ -49,6 +49,10 @@ epoch-relative values (see `BeltPoints` epoch rebasing and `TrajectoryLayer` anc
 - Moons with `orbitFrame: 'parentEquator'` are rotated into the ecliptic by the parent's
   equator frame, which is built from its IAU pole (`poleToEcliptic`, `equatorialToEcliptic`).
   That's why Uranus's moons orbit on their side and Triton orbits retrograde.
+- **Barycentric partners:** a body with `barycentricPartner` (Earth → Moon, Pluto → Charon)
+  has elements for the pair's barycenter. The ephemeris offsets it by `−μ·r_partner`, with
+  `μ = GM_partner / (GM + GM_partner)`, in `update`, `positionAt` and `helioStateAt` (velocity
+  too). The partner's orbit stays relative to the body's centre, and both need `gm`.
 - `positionAt(id, jd, out)` evaluates at an arbitrary date **without** touching cached state.
   The economy and planner use it, never `position()`, so the economy doesn't depend on the
   render clock.
@@ -77,5 +81,6 @@ only. The economy never reads them.
 ## Known simplifications (documented, not drift)
 
 The Sun is fixed at the origin; there are no mutual perturbations; small bodies follow
-two-body motion; UTC is used in place of TDB. Earth is placed at the Earth–Moon barycenter (#18).
+two-body motion; UTC is used in place of TDB. Moons other than barycentric partners orbit their
+planet's centre, not the pair's barycenter.
 The full list for users is in the README's "Accuracy notes".

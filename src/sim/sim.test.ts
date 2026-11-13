@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AU_KM, DAYS_PER_JULIAN_CENTURY, J2000, SECONDS_PER_DAY } from './constants.ts';
 import { DEG, distance, length, vec3 } from './math/vec3.ts';
 import { elementsAt } from './orbits/models.ts';
-import { solveKepler } from './orbits/kepler.ts';
+import { positionFromElements, solveKepler } from './orbits/kepler.ts';
 import { Simulation } from './simulation.ts';
 import { SimClock } from './time/clock.ts';
 import { dateToJd, jdToDate } from './time/julian.ts';
@@ -72,6 +72,27 @@ describe('Ephemeris', () => {
   ])('places %s near its Horizons position in 2100', (id, x, y, z, toleranceKm) => {
     const position = eph.positionAt(id, 2_488_069.5, vec3());
     expect(distance(position, vec3(x, y, z))).toBeLessThan(toleranceKm);
+  });
+
+  it.each([
+    ['earth', 'moon', 4_000, 5_300],
+    ['pluto', 'charon', 2_000, 2_300],
+  ])('offsets %s from its barycenter with %s', (primary, partner, minKm, maxKm) => {
+    const jd = J2000 + 1_234.5;
+    const p = eph.positionAt(primary, jd, vec3());
+    const m = eph.positionAt(partner, jd, vec3());
+    const gmP = eph.get(primary).gm!;
+    const gmM = eph.get(partner).gm!;
+    // The mass-weighted centre is exactly the barycenter the orbit elements describe.
+    const bary = vec3(
+      (gmP * p.x + gmM * m.x) / (gmP + gmM),
+      (gmP * p.y + gmM * m.y) / (gmP + gmM),
+      (gmP * p.z + gmM * m.z) / (gmP + gmM),
+    );
+    const orbit = positionFromElements(elementsAt(eph.get(primary).orbit!, jd), vec3());
+    expect(distance(bary, orbit)).toBeLessThan(1e-3);
+    expect(distance(p, orbit)).toBeGreaterThan(minKm);
+    expect(distance(p, orbit)).toBeLessThan(maxKm);
   });
 
   it('keeps moons at their semi-major axis from the parent', () => {

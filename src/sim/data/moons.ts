@@ -248,6 +248,7 @@ export const MOONS: readonly BodyDefinition[] = [
     name: 'Charon',
     parentId: 'pluto',
     radiusKm: 606,
+    gm: 105.88,
     el: [19_591, 0.0002, 0.08, 146.106, 26.928, 131.07, 6.387_230_4],
   }),
 ];

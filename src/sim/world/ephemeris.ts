@@ -31,9 +31,17 @@ interface BodyRuntime {
   pole: Vec3 | null;
   spinPeriodDays: number | null;
   W0: number;
+  /** Moon whose barycenter with this body `def.orbit` describes, and its mass fraction μ. */
+  partner: BodyRuntime | null;
+  partnerMassRatio: number;
 }
 
 const scratch = vec3();
+const partnerScratch = vec3();
+const partnerA = vec3();
+const partnerB = vec3();
+/** Half-step (days) for the partner's finite-difference velocity in `helioStateAt`. */
+const PARTNER_FD_DAYS = 0.01;
 
 /**
  * Computes positions of a hierarchy of bodies at a given Julian date.
@@ -59,6 +67,8 @@ export class Ephemeris {
         pole: null,
         spinPeriodDays: null,
         W0: 0,
+        partner: null,
+        partnerMassRatio: 0,
       };
       parent?.children.push(rt);
       this.#byId.set(def.id, rt);
@@ -77,6 +87,40 @@ export class Ephemeris {
       }
       rt.equatorFrame = rt.pole ? equatorialToEcliptic(rt.pole) : null;
     }
+    for (const rt of this.#runtimes) {
+      const partnerId = rt.def.barycentricPartner;
+      if (partnerId === undefined) continue;
+      const partner = rt.children.find((c) => c.def.id === partnerId);
+      const gm = rt.def.gm;
+      const gmPartner = partner?.def.gm;
+      if (!partner?.def.orbit || partner.def.barycentricPartner || !gm || !gmPartner) {
+        throw new Error(
+          `Body "${rt.def.id}": barycentricPartner "${partnerId}" must be an orbiting child, and both need gm`,
+        );
+      }
+      rt.partner = partner;
+      rt.partnerMassRatio = gmPartner / (gm + gmPartner);
+    }
+  }
+
+  /**
+   * Position relative to the parent (km, ecliptic) at `jd`, including the barycentric offset
+   * for a body with a partner. Writes `out` only.
+   */
+  #localAt(rt: BodyRuntime, jd: number, out: Vec3): Vec3 {
+    const { def, parent } = rt;
+    positionFromElements(elementsAt(def.orbit!, jd), out);
+    if (def.orbitFrame === 'parentEquator' && parent?.equatorFrame) {
+      transform(out, parent.equatorFrame, out);
+    }
+    if (rt.partner) {
+      const p = this.#localAt(rt.partner, jd, partnerScratch);
+      const mu = rt.partnerMassRatio;
+      out.x -= mu * p.x;
+      out.y -= mu * p.y;
+      out.z -= mu * p.z;
+    }
+    return out;
   }
 
   get jd(): number {
@@ -92,10 +136,7 @@ export class Ephemeris {
         rt.position.x = rt.position.y = rt.position.z = 0;
         continue;
       }
-      positionFromElements(elementsAt(def.orbit, jd), rt.local);
-      if (def.orbitFrame === 'parentEquator' && parent.equatorFrame) {
-        transform(rt.local, parent.equatorFrame, rt.local);
-      }
+      this.#localAt(rt, jd, rt.local);
       add(rt.position, parent.position, rt.local);
     }
   }
@@ -124,10 +165,7 @@ export class Ephemeris {
       out.x = out.y = out.z = 0;
       return out;
     }
-    const local = positionFromElements(elementsAt(def.orbit, jd), vec3());
-    if (def.orbitFrame === 'parentEquator' && parent.equatorFrame) {
-      transform(local, parent.equatorFrame, local);
-    }
+    const local = this.#localAt(rt, jd, vec3());
     this.positionAt(parent.def.id, jd, out);
     return add(out, out, local);
   }
@@ -138,7 +176,8 @@ export class Ephemeris {
    * plus the secular drift of every element). Returns false for other bodies.
    */
   helioStateAt(id: string, jd: number, pos: Vec3, vel: Vec3): boolean {
-    const { def, parent } = this.#rt(id);
+    const rt = this.#rt(id);
+    const { def, parent } = rt;
     if (!def.orbit || !parent || parent.parent !== null || def.orbitFrame === 'parentEquator') {
       return false;
     }
@@ -172,6 +211,21 @@ export class Ephemeris {
     vel.x /= 86_400;
     vel.y /= 86_400;
     vel.z /= 86_400;
+    if (rt.partner) {
+      // Barycentric offset: −μ·r_partner, and −μ·v_partner by central difference (the
+      // partner's velocity is ~1 km/s, so the difference error is far below 1 mm/s).
+      const mu = rt.partnerMassRatio;
+      const p = this.#localAt(rt.partner, jd, partnerScratch);
+      pos.x -= mu * p.x;
+      pos.y -= mu * p.y;
+      pos.z -= mu * p.z;
+      const a = this.#localAt(rt.partner, jd - PARTNER_FD_DAYS, partnerA);
+      const b = this.#localAt(rt.partner, jd + PARTNER_FD_DAYS, partnerB);
+      const k = mu / ((jd + PARTNER_FD_DAYS - (jd - PARTNER_FD_DAYS)) * 86_400);
+      vel.x -= k * (b.x - a.x);
+      vel.y -= k * (b.y - a.y);
+      vel.z -= k * (b.z - a.z);
+    }
     return true;
   }
 
