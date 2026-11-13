@@ -45,11 +45,14 @@ interface BodyRuntime {
   /** Moon whose barycenter with this body `def.orbit` describes, and its mass fraction μ. */
   partner: BodyRuntime | null;
   partnerMassRatio: number;
+  /** Orbiting ancestors from the root down, ending with this body (for `positionAt`). */
+  chain: BodyRuntime[];
 }
 
 const scratch = vec3();
 const partnerScratch = vec3();
 const orientScratch = vec3();
+const localScratch = vec3();
 const partnerA = vec3();
 const partnerB = vec3();
 /** Half-step (days) for the partner's finite-difference velocity in `helioStateAt`. */
@@ -83,7 +86,9 @@ export class Ephemeris {
         W0: 0,
         partner: null,
         partnerMassRatio: 0,
+        chain: [],
       };
+      if (def.orbit && parent) rt.chain = [...parent.chain, rt];
       parent?.children.push(rt);
       this.#byId.set(def.id, rt);
       return rt;
@@ -176,15 +181,10 @@ export class Ephemeris {
    * `update()` maintains. Used for planning (km, ecliptic J2000).
    */
   positionAt(id: string, jd: number, out: Vec3): Vec3 {
-    const rt = this.#rt(id);
-    const { def, parent } = rt;
-    if (!def.orbit || !parent) {
-      out.x = out.y = out.z = 0;
-      return out;
-    }
-    const local = this.#localAt(rt, jd, vec3());
-    this.positionAt(parent.def.id, jd, out);
-    return add(out, out, local);
+    // Sum the local offsets from the root down: the same order (and bits) as `update`.
+    out.x = out.y = out.z = 0;
+    for (const rt of this.#rt(id).chain) add(out, out, this.#localAt(rt, jd, localScratch));
+    return out;
   }
 
   /**
@@ -236,12 +236,12 @@ export class Ephemeris {
       pos.x -= mu * p.x;
       pos.y -= mu * p.y;
       pos.z -= mu * p.z;
-      const a = this.#localAt(rt.partner, jd - PARTNER_FD_DAYS, partnerA);
-      const b = this.#localAt(rt.partner, jd + PARTNER_FD_DAYS, partnerB);
+      const before = this.#localAt(rt.partner, jd - PARTNER_FD_DAYS, partnerA);
+      const after = this.#localAt(rt.partner, jd + PARTNER_FD_DAYS, partnerB);
       const k = mu / ((jd + PARTNER_FD_DAYS - (jd - PARTNER_FD_DAYS)) * 86_400);
-      vel.x -= k * (b.x - a.x);
-      vel.y -= k * (b.y - a.y);
-      vel.z -= k * (b.z - a.z);
+      vel.x -= k * (after.x - before.x);
+      vel.y -= k * (after.y - before.y);
+      vel.z -= k * (after.z - before.z);
     }
     return true;
   }

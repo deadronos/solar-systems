@@ -462,7 +462,7 @@ export function applyCommands(
 }
 
 /** Per-tick ship running costs and utilisation accounting. */
-export function runShips(world: LogisticsWorld, dtDays: number, shipIds: string[]): void {
+export function runShips(world: LogisticsWorld, dtDays: number, shipIds: readonly string[]): void {
   for (const id of shipIds) {
     const ship = world.ships.get(id);
     if (!ship || ship.state === 'building') continue;

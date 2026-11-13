@@ -56,7 +56,8 @@ Daily work (contract generation, stats samples, periodic controller wake-ups) is
 The same seed must produce the identical event log, and `events.hash()` checks it.
 
 - Iterate entity maps in **sorted id order** (`sortedIds(map)`), never in raw insertion order,
-  when the order affects outcomes.
+  when the order affects outcomes. `sortedIds` reuses its last (frozen) array while the key set
+  is unchanged, so never mutate the result.
 - Randomness only from `world.rng('stream-name')`: independent named streams, so adding a stream
   doesn't perturb the others.
 - Read planet positions only via `ephemeris.positionAt(id, jd)` at explicit dates, never the
