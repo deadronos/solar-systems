@@ -57,7 +57,9 @@ To add a command: add a union member to `Command`, a `case` in `apply()` that va
   2. Otherwise sell any unassigned cargo here or route it to the best buyer.
   3. Otherwise pick the best-scoring candidate.
 - **Candidates and scoring:**
-  - Open contracts are costed per ship, using landed source cost plus the cost of each leg.
+  - Open contracts are shortlisted by profit before travel (reward less the cheapest goods,
+    the freight fee, or a sell order's resale gain); only the top 8 are costed per ship,
+    using landed source cost plus the cost of each leg.
     Contract and trade estimates include the scenario docking fee per leg.
   - Sell orders (`export` contracts) are scored like trades: the offer price plus legs to the
     seller and on to the best bid, risk-discounted. On loading, the ship's job becomes a

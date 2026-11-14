@@ -165,6 +165,8 @@ falls below `contracts.postThreshold` times the desired level (half by default):
 
 - **Local shuttle**: a same-body neighbour (e.g. Gateway ↔ Earth Exchange) sells directly. No
   ship is needed, and payment is immediate.
+- Hauls are priced (fee, lead time, deadline) with the cheapest tier 1–2 class, from orbital
+  geometry at the start of the current 7-day week, so pricing re-solves trips at most weekly.
 - **Freight**: goods are _reserved_ at the cheapest source (stock removed). The buyer pays the
   escrow to the source **at loading** and pays the carrier's fee on delivery.
 - **Delivery**: the carrier sources the goods anywhere; the buyer pays the reward on delivery.

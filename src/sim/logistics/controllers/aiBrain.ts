@@ -37,6 +37,8 @@ interface ShipDecision {
 
 /** Top raw opportunities that get a (more expensive) trip estimate. */
 const TOP_K = 6;
+/** Open contracts per decision that get trip estimates, ranked by a travel-free profit. */
+const CONTRACT_TOP_K = 8;
 
 /** Expected profit after discounting revenue for price risk over the trip length. */
 export function riskAdjustedProfit(
@@ -394,9 +396,8 @@ export class AiBrain implements CompanyController {
       return w;
     };
 
-    // A) Contracts.
-    for (const c of view.openContracts()) {
-      if (reservedContracts.has(c.id) || c.qty > cls.cargoT - cargoMass(ship)) continue;
+    // A) Contracts: only the most promising few get (expensive) trip estimates.
+    for (const c of this.#shortlist(view, ship, reservedContracts)) {
       const legs: [string, string][] = [];
       let purchase = 0;
       let first: string;
@@ -549,6 +550,40 @@ export class AiBrain implements CompanyController {
 
     cands.sort((a, b) => b.score - a.score);
     return cands[0] ?? null;
+  }
+
+  /**
+   * Open contracts this ship could take, best first by profit before travel costs: the
+   * reward less the cheapest goods (delivery), the fee (freight), or the resale gain (sell
+   * order). Only the top `CONTRACT_TOP_K` are worth trip estimates.
+   */
+  #shortlist(
+    view: CompanyView,
+    ship: DeepReadonly<Ship>,
+    reserved: ReadonlySet<string>,
+  ): DeepReadonly<Contract>[] {
+    const room = view.shipClass(ship.classId).cargoT - cargoMass(ship);
+    const ranked: { c: DeepReadonly<Contract>; gain: number }[] = [];
+    for (const c of view.openContracts()) {
+      if (reserved.has(c.id) || c.qty > room) continue;
+      let gain: number;
+      if (c.kind === 'freight') {
+        gain = c.reward;
+      } else if (c.kind === 'export') {
+        const buyer = this.#bestBuyer(view, c.good, c.qty, c.settlementId);
+        gain = buyer ? buyer.bid * c.qty - c.escrowCost : 0;
+      } else {
+        let cheapest = Number.POSITIVE_INFINITY;
+        for (const s of view.settlements()) {
+          if (s.id === c.settlementId || this.#spare(view, s.id, c.good) < c.qty) continue;
+          cheapest = Math.min(cheapest, view.ask(s.id, c.good));
+        }
+        gain = c.reward - cheapest * c.qty;
+      }
+      if (gain > 0) ranked.push({ c, gain });
+    }
+    ranked.sort((a, b) => b.gain - a.gain || a.c.id.localeCompare(b.c.id));
+    return ranked.slice(0, CONTRACT_TOP_K).map((r) => r.c);
   }
 
   /** A sell order scored like a trade: buy at the offer price, sell at the best bid. */
