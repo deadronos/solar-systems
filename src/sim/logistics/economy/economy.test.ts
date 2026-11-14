@@ -12,6 +12,7 @@ import {
   priceFor,
   shouldAnnouncePrice,
 } from './markets.ts';
+import { runProduction } from './production.ts';
 import type { ScenarioConfig, SettlementDef } from './types.ts';
 
 const eph = new Ephemeris(DEFAULT_CATALOG);
@@ -96,6 +97,31 @@ describe('production', () => {
     const m = w.settlements.get('test-colony')!.market;
     expect(m.steel.stock).toBeCloseTo(10, 5);
     expect(m.ore.stock).toBeCloseTo(0, 5);
+  });
+
+  it('idles industry, and asks for no inputs, while output is worth less than inputs', () => {
+    const w = createWorld(
+      scenario(
+        colony({
+          facilities: [{ recipeId: 'water_fuel', maxRatePerDay: 100 }],
+          initialStock: { water: 100_000 },
+        }),
+      ),
+      eph,
+    );
+    const s = w.settlements.get('test-colony')!;
+    s.flows.demand = {};
+    s.market.water.price = 800;
+    s.market.fuel.price = 400;
+    const fuel0 = s.market.fuel.stock;
+    runProduction(s, w, 1);
+    expect(s.market.fuel.stock).toBe(fuel0);
+    // Only the people's own water use is demanded, not the plant's 110 t.
+    expect(s.flows.demand.water ?? 0).toBeLessThan(100);
+    // Fuel worth more than the water it takes: the plant runs.
+    s.market.fuel.price = 1_000;
+    runProduction(s, w, 1);
+    expect(s.market.fuel.stock).toBeCloseTo(fuel0 + 100, 5);
   });
 });
 

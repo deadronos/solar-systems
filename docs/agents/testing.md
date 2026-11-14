@@ -3,7 +3,9 @@
 How tests are organised and which patterns to reuse. Read this before adding or changing tests.
 
 **Source of truth:** `vite.config.ts` (`test` block), `src/**/*.test.ts(x)`. Key files:
-`src/sim/logistics/soak.test.ts`, `src/sim/logistics/sync/sync.test.ts`, `src/sim/sim.test.ts`.
+`src/sim/logistics/soak.test.ts`, `src/sim/logistics/soakHarness.ts`,
+`src/sim/logistics/robustness.*.test.ts`, `src/sim/logistics/sync/sync.test.ts`,
+`src/sim/sim.test.ts`.
 
 ## Basics
 
@@ -11,8 +13,8 @@ How tests are organised and which patterns to reuse. Read this before adding or 
   `core/core.test.ts`, `economy/contracts.test.ts`…). React rendering can be tested with
   `renderToString` (`ui/logistics/inspectors/inspectors.test.tsx`). The provider lifecycle
   test uses `happy-dom` to mount and unmount a React root.
-- `pnpm test` runs everything in about 10 s. A three.js CJS deprecation warning in the output
-  is expected noise.
+- `pnpm test` runs everything in about 25 s, most of it the five 20-year soaks. A three.js
+  CJS deprecation warning in the output is expected noise.
 - Slow tests (multi-year runs) declare an explicit timeout: `it('…', { timeout: 180_000 }, …)`.
 
 ## Building worlds in tests
@@ -45,13 +47,18 @@ How tests are organised and which patterns to reuse. Read this before adding or 
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `soak.test.ts` → determinism      | Two runs from one seed give an identical `events.hash()`.                                                                                                                                                                                                                              |
 | `soak.test.ts` → 20-year soak     | Finite non-negative stock, prices within clamps, population ≥ 0, treasury ≥ 0, `committed` equals what live contracts owe, survival shortages ≤ 1 year, ≥ 3 active companies, money conserved against the ledger, colony money > 40% of start and ≥ 20 buy orders in the last 2 years. |
+| `robustness.*.test.ts`            | The same invariants as the 20-year soak on four perturbed scenarios (`SOAK_VARIANTS`: later start, richer companies, thinner stocks, poorer colonies), split across two files so they run in parallel.                                                                                 |
 | `soak.test.ts` → performance      | ≥ 1,000 economy ticks/s headless.                                                                                                                                                                                                                                                      |
 | `sync/sync.test.ts`               | The worker backend (via an in-process fake `EconomyPort` with `structuredClone`) mirrors the inline economy tick for tick; fallback and failure paths.                                                                                                                                 |
 | `sim.test.ts`                     | Kepler solver, Julian dates, ephemeris vs JPL Horizons at J2000, periodicity.                                                                                                                                                                                                          |
 | `navigation/lambert.test.ts`      | Lambert solver against a reference implementation (`lambertReference.ts`).                                                                                                                                                                                                             |
 | `render/scene/beltShader.test.ts` | The JS mirror of the GPU Kepler solver (`solveKeplerFixed`). Keep GLSL and JS in sync.                                                                                                                                                                                                 |
 
-A new **invariant** (something that must hold for any run) belongs in the 20-year soak loop.
+A new **invariant** (something that must hold for any run) belongs in `runSoak`
+(`soakHarness.ts`), which both the default soak and the perturbed variants use. The economy is
+chaotic: a tweak that passes the default run can starve a colony in a variant, so check all
+five before calling an economy change done. The scenario seed alone changes almost nothing;
+perturb the scenario (start date, cash, stocks) instead.
 A new mechanic gets a focused test in its area file, plus an invariant if it touches money,
 stock or population.
 

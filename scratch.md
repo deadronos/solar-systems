@@ -22,6 +22,11 @@ Working notes on which open issues to tackle next (as of 2026-11-14). Not a desi
   capacity counted, outbound local shuttle to Earth, survival budget only for the people's
   share of a survival good.
 
+- PR #48: #16 inbound awareness (merged). Branch `test/soak-robustness`: perturbed 20-year
+  soaks (`soakHarness.ts`) and a production profitability gate. Before the gate, 5 of 11
+  perturbed runs starved a colony for over a year (Gateway in 4, up to 1,960 days); after it,
+  10 of 10 pass with the worst shortage at 110 days.
+
 Every remaining issue is labelled `explore`: each needs a design decision before code (see
 `docs/agents/workflow.md`). The options below are starting points for that decision.
 
@@ -51,11 +56,9 @@ order-size slippage, real depth for deep markets.
 **#16 AI herding**: done on `feat/inbound-awareness`. Leftovers: competition ignores arrival
 times, and there's no soft demand booking.
 
-**Fragility (new, no issue yet)**: the 20-year soak is chaotic. Small AI changes move it onto
-different paths, and with one uniform `competitionWeight` most values from 0 to 1 starved a
-colony (Gateway or Luna) for over a year. Gateway lives on fuel exports to Earth, and they stop
-paying once its own sales drive Earth's fuel price down. Nothing closes an unprofitable
-facility. Worth a robustness test that runs several perturbed scenarios.
+**Fragility**: addressed on `test/soak-robustness`. Unprofitable industry now idles, and four
+perturbed scenarios run in CI. Leftover: the variants only cover four starting conditions, and
+start + 700 days loses some population (66.5k vs 72k at year 20) without breaking an invariant.
 
 ## 2. Physics (#6)
 
@@ -92,6 +95,6 @@ facility. Worth a robustness test that runs several perturbed scenarios.
 
 ## Suggested sequencing
 
-- Most impact: #15 price formation, then the soak fragility above.
+- Most impact: #15 price formation.
 - Contained physics win: the cheap first step of #21.
 - Scaling: #25 before large fleets, then #27.

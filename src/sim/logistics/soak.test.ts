@@ -5,8 +5,7 @@ import { Ephemeris } from '../world/ephemeris.ts';
 import { START_JD } from './core/time.ts';
 import { createWorld } from './createWorld.ts';
 import { DEFAULT_SCENARIO } from './data/scenario.ts';
-import { ledgerTotal, moneySupply } from './economy/money.ts';
-import { outstanding } from './economy/treasury.ts';
+import { MAX_STARVING_DAYS, runSoak } from './soakHarness.ts';
 
 const eph = () => new Ephemeris(DEFAULT_CATALOG);
 
@@ -23,74 +22,12 @@ describe('determinism', () => {
 
 describe('20-year soak', () => {
   it('stays stable, alive and growing', { timeout: 180_000 }, () => {
-    const w = createWorld(DEFAULT_SCENARIO, eph(), { controllers: true });
-    const marsStart = w.settlements.get('mars-colony')!.population;
-    const { markets, population } = w.constants;
-    const starvingSince = new Map<string, number>();
-    let maxStarvingDays = 0;
-    let worst = '';
-    const supply0 = moneySupply(w);
-    const colonyCash = () =>
-      [...w.settlements.values()].reduce((a, s) => a + (s.isDeepMarket ? 0 : s.treasury), 0);
-    const colonyCash0 = colonyCash();
-    // Buy orders posted per year: the inter-colony market must not collapse (#11).
-    const buyOrders = Array.from({ length: 20 }, () => 0);
-    w.events.subscribe((e) => {
-      if (e.type === 'ContractPosted' && e.kind !== 'export') {
-        buyOrders[Math.min(19, Math.floor((e.jd - START_JD) / 365))]!++;
-      }
-    });
-    for (let year = 0; year < 20; year++) {
-      for (let day = 0; day < 365; day += 10) {
-        w.advanceTo(START_JD + year * 365 + day + 10);
-        for (const s of w.settlements.values()) {
-          if (s.isDeepMarket) continue;
-          for (const [g, e] of Object.entries(s.market)) {
-            expect(
-              Number.isFinite(e.stock) && e.stock >= -1e-6,
-              `${s.id} ${g} stock ${e.stock}`,
-            ).toBe(true);
-            const base = w.goods.get(g as never)!.basePrice;
-            expect(e.price).toBeGreaterThanOrEqual(base * markets.priceClampMin - 1e-6);
-            expect(e.price).toBeLessThanOrEqual(base * markets.priceClampMax + 1e-6);
-          }
-          expect(Number.isFinite(s.population) && s.population >= 0).toBe(true);
-          // Money promised to contracts is reserved, so paying them never overdraws.
-          expect(s.treasury, `${s.id} treasury`).toBeGreaterThanOrEqual(-1e-6);
-          const owed = [...w.contracts.values()]
-            .filter(
-              (c) => c.settlementId === s.id && c.status !== 'completed' && c.status !== 'expired',
-            )
-            .reduce((a, c) => a + outstanding(c), 0);
-          expect(s.committed, `${s.id} committed`).toBeCloseTo(owed, 0);
-          expect(s.committed).toBeLessThanOrEqual(s.treasury + 1e-6);
-          if (s.satisfaction.survival < population.emigrationThreshold) {
-            if (!starvingSince.has(s.id)) starvingSince.set(s.id, w.jd);
-            const d = w.jd - starvingSince.get(s.id)!;
-            if (d > maxStarvingDays) {
-              maxStarvingDays = d;
-              worst = s.id;
-            }
-          } else {
-            starvingSince.delete(s.id);
-          }
-        }
-        for (const co of w.companies.values()) expect(Number.isFinite(co.cash)).toBe(true);
-        // Money is conserved: every change in the supply is booked on a ledger line.
-        const drift = moneySupply(w) - supply0 - ledgerTotal(w.ledger);
-        expect(Math.abs(drift), `money drift at day ${w.jd - START_JD}`).toBeLessThan(1);
-      }
-    }
-    // Colony money and order volume stay roughly stationary instead of draining away.
-    expect(colonyCash()).toBeGreaterThan(0.4 * colonyCash0);
-    expect(buyOrders[18]! + buyOrders[19]!).toBeGreaterThanOrEqual(20);
-    const active = [...w.companies.values()].filter((co) => co.status !== 'bankrupt');
-    expect(active.length).toBeGreaterThanOrEqual(3);
-    expect(w.settlements.get('mars-colony')!.population).toBeGreaterThan(marsStart);
-    expect(maxStarvingDays, `longest survival shortage: ${worst}`).toBeLessThanOrEqual(365);
-    expect(w.events.recent(10_000).some((e) => e.type === 'ShipOrdered') || w.ships.size > 16).toBe(
-      true,
-    );
+    const r = runSoak(DEFAULT_SCENARIO);
+    expect(r.violations).toEqual([]);
+    expect(
+      r.maxStarvingDays,
+      `longest survival shortage: ${r.worstSettlement}`,
+    ).toBeLessThanOrEqual(MAX_STARVING_DAYS);
   });
 });
 
