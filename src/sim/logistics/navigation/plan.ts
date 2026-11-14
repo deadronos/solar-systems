@@ -24,6 +24,8 @@ export type Leg =
       to: Vec3;
       accelKmS2: number;
       vMaxKmS: number;
+      /** Waypoint the path bends through to stay clear of the Sun (#21); straight if absent. */
+      via?: Vec3;
     }
   | { kind: 'jump'; t0: number; t1: number; from: Vec3; to: Vec3 };
 
@@ -92,16 +94,21 @@ export function evaluatePlan(
       return out;
     }
     case 'torch': {
-      const dx = leg.to.x - leg.from.x;
-      const dy = leg.to.y - leg.from.y;
-      const dz = leg.to.z - leg.from.z;
-      const d = Math.hypot(dx, dy, dz);
+      // One accelerate/flip/decelerate profile along from → (via →) to.
+      const mid = leg.via ?? leg.to;
+      const d1 = Math.hypot(mid.x - leg.from.x, mid.y - leg.from.y, mid.z - leg.from.z);
+      const d2 = leg.via ? Math.hypot(leg.to.x - mid.x, leg.to.y - mid.y, leg.to.z - mid.z) : 0;
+      const d = d1 + d2;
       const total = (leg.t1 - leg.t0) * 86_400;
-      const s =
-        d > 0 ? torchDistance((t - leg.t0) * 86_400, total, d, leg.accelKmS2, leg.vMaxKmS) / d : 1;
-      out.x = leg.from.x + dx * s;
-      out.y = leg.from.y + dy * s;
-      out.z = leg.from.z + dz * s;
+      const along =
+        d > 0 ? torchDistance((t - leg.t0) * 86_400, total, d, leg.accelKmS2, leg.vMaxKmS) : d;
+      const [a, b, s] =
+        along <= d1 || d2 <= 0
+          ? [leg.from, mid, d1 > 0 ? along / d1 : 1]
+          : [mid, leg.to, (along - d1) / d2];
+      out.x = a.x + (b.x - a.x) * s;
+      out.y = a.y + (b.y - a.y) * s;
+      out.z = a.z + (b.z - a.z) * s;
       return out;
     }
     case 'jump': {

@@ -374,6 +374,7 @@ export interface EconomyConstants {
     surfaceDvFactor: number;
     lowOrbitFactor: number;
     transferDaysPerKmS: number;
+    torchSunKeepOutAU: number;
   };
 }
 

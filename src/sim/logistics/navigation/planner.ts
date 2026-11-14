@@ -1,5 +1,5 @@
-import { J2000 } from '../../constants.ts';
-import { length, sub, vec3, type Vec3 } from '../../math/vec3.ts';
+import { AU_KM, J2000 } from '../../constants.ts';
+import { cross, distance, length, normalize, sub, vec3, type Vec3 } from '../../math/vec3.ts';
 import type { Ephemeris } from '../../world/ephemeris.ts';
 import { ECONOMY_CONSTANTS } from '../data/economyConstants.ts';
 import type { EconomyConstants, Settlement, ShipClass } from '../economy/types.ts';
@@ -197,7 +197,49 @@ const hold = (
   label: Leg & { kind: 'hold' } extends { label: infer L } ? L : never,
 ): Leg => ({ kind: 'hold', bodyId, t0, t1, label });
 
-/** Arrival time for a torch profile chasing a moving target (fixed-point iteration). */
+/** Seconds to cover `d` km from rest to rest: accelerate, (coast at `vMax`), decelerate. */
+function torchSeconds(d: number, accel: number, vMax: number): number {
+  const tAccFull = Math.sqrt(d / accel);
+  if (accel * tAccFull <= vMax) return 2 * tAccFull;
+  const tAcc = vMax / accel;
+  return 2 * tAcc + (d - accel * tAcc * tAcc) / vMax;
+}
+
+const ECLIPTIC_NORTH: Vec3 = { x: 0, y: 0, z: 1 };
+
+/**
+ * Waypoint that keeps a straight torch path from `a` to `b` out of the Sun's keep-out sphere
+ * (radius `r` km), or null if the line already clears it. The waypoint sits on the sphere
+ * above the line's closest point to the Sun, so the path bends around the Sun on the near
+ * side. Endpoints inside the sphere (nothing orbits there today) get no detour.
+ */
+export function sunWaypoint(a: Vec3, b: Vec3, r: number): Vec3 | null {
+  if (!(r > 0) || length(a) < r || length(b) < r) return null;
+  const d = sub(vec3(), b, a);
+  const l2 = d.x * d.x + d.y * d.y + d.z * d.z;
+  if (!(l2 > 0)) return null;
+  const u = -(a.x * d.x + a.y * d.y + a.z * d.z) / l2;
+  if (u <= 0 || u >= 1) return null;
+  const p = vec3(a.x + u * d.x, a.y + u * d.y, a.z + u * d.z);
+  const dist = length(p);
+  if (dist >= r) return null;
+  // Straight through the Sun: detour sideways in the ecliptic plane.
+  const n = dist > 1e-6 * r ? normalize(p, p) : normalize(p, cross(p, d, ECLIPTIC_NORTH));
+  if (!(length(n) > 0)) return vec3(r, 0, 0);
+  return vec3(n.x * r, n.y * r, n.z * r);
+}
+
+/** Seconds of change in arrival time below which the torch iteration stops. */
+const TORCH_TOLERANCE_S = 60;
+const TORCH_MAX_ITERATIONS = 10;
+
+/**
+ * Arrival time for a torch profile chasing a moving target (fixed-point iteration, stopped at
+ * `TORCH_TOLERANCE_S`). The path is straight, or bent once around the Sun's keep-out sphere
+ * (`nav.torchSunKeepOutAU`). Δv is the burn plus the velocity difference between the two ends
+ * (#21): a ship leaving Earth at 30 km/s must slow to Ceres' 18 km/s. Solar gravity is ignored:
+ * it is at most 2% of the weakest torch's thrust outside the keep-out sphere.
+ */
 function torchSolve(
   ctx: NavContext,
   fromBody: string,
@@ -205,26 +247,30 @@ function torchSolve(
   t0: number,
   accel: number,
   vMax: number,
-): { t1: number; from: Vec3; to: Vec3; dv: number } {
-  const from = ctx.eph.positionAt(fromBody, t0, vec3());
+): { t1: number; from: Vec3; to: Vec3; via: Vec3 | null; dv: number } {
+  const from = vec3();
+  const vFrom = vec3();
+  bodyState(ctx.eph, fromBody, ctx.helioBody(fromBody), t0, from, vFrom);
+  const keepOut = ctx.balance.torchSunKeepOutAU * AU_KM;
   const to = vec3();
+  let via: Vec3 | null = null;
   let t1 = t0;
   let seconds = 0;
-  for (let k = 0; k < 5; k++) {
+  for (let k = 0; k < TORCH_MAX_ITERATIONS; k++) {
     ctx.eph.positionAt(toBody, t1, to);
-    const d = length(sub(vec3(), to, from));
-    const tAccFull = Math.sqrt(d / accel);
-    if (accel * tAccFull <= vMax) {
-      seconds = 2 * tAccFull;
-    } else {
-      const tAcc = vMax / accel;
-      seconds = 2 * tAcc + (d - accel * tAcc * tAcc) / vMax;
-    }
-    t1 = t0 + seconds / DAY;
+    via = sunWaypoint(from, to, keepOut);
+    const d = via ? distance(from, via) + distance(via, to) : distance(from, to);
+    seconds = torchSeconds(d, accel, vMax);
+    const next = t0 + seconds / DAY;
+    const converged = Math.abs(next - t1) * DAY < TORCH_TOLERANCE_S;
+    t1 = next;
+    if (converged) break;
   }
-  ctx.eph.positionAt(toBody, t1, to);
-  const dv = Math.min(accel * seconds, 2 * vMax);
-  return { t1, from, to, dv };
+  const vTo = vec3();
+  bodyState(ctx.eph, toBody, ctx.helioBody(toBody), t1, to, vTo);
+  via = sunWaypoint(from, to, keepOut);
+  const dv = Math.min(accel * seconds, 2 * vMax) + distance(vTo, vFrom);
+  return { t1, from, to, via, dv };
 }
 
 function solveTrip(
@@ -329,6 +375,7 @@ function solveTrip(
         to: r.to,
         accelKmS2: accel,
         vMaxKmS: Number.isFinite(vMax) ? vMax : 1e12,
+        ...(r.via ? { via: r.via } : {}),
       });
     }
   } else {

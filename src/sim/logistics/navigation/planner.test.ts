@@ -6,7 +6,8 @@ import { START_JD } from '../core/time.ts';
 import { LogisticsWorld } from '../core/world.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { evaluatePlan } from './plan.ts';
-import { estimateTrip, NavContext, planTrip } from './planner.ts';
+import { AU_KM } from '../../constants.ts';
+import { estimateTrip, NavContext, planTrip, sunWaypoint } from './planner.ts';
 
 const eph = new Ephemeris(DEFAULT_CATALOG);
 const world = new LogisticsWorld(DEFAULT_SCENARIO, eph);
@@ -195,5 +196,40 @@ describe('planner', () => {
 
   it('dispatching to the current site yields null', () => {
     expect(planTrip(cls('chem-tug'), site('gateway'), site('gateway'), START_JD, ctx)).toBeNull();
+  });
+
+  describe('torch paths around the Sun (#21)', () => {
+    const r = 0.3 * AU_KM;
+
+    it('bends a line that would pass the Sun through a waypoint on the keep-out sphere', () => {
+      const w = sunWaypoint(vec3(-AU_KM, 0.1 * AU_KM, 0), vec3(AU_KM, 0.1 * AU_KM, 0), r)!;
+      expect(distance(w, vec3())).toBeCloseTo(r, 0);
+      expect(w.y).toBeGreaterThan(0); // the near side
+      // Dead centre: sideways in the ecliptic plane.
+      const c = sunWaypoint(vec3(-AU_KM, 0, 0), vec3(AU_KM, 0, 0), r)!;
+      expect(distance(c, vec3())).toBeCloseTo(r, 0);
+      expect(c.z).toBeCloseTo(0, 6);
+      // Clear of the sphere, or the closest point is an endpoint: straight.
+      expect(sunWaypoint(vec3(-AU_KM, AU_KM, 0), vec3(AU_KM, AU_KM, 0), r)).toBeNull();
+      expect(sunWaypoint(vec3(AU_KM, 0, 0), vec3(2 * AU_KM, 0, 0), r)).toBeNull();
+    });
+
+    it('a torch trip across the Sun detours around it, and pays to match velocities', () => {
+      const ship = cls('fusion-freighter');
+      let plan = null;
+      for (let d = 0; d < 800 && !plan?.legs.some((l) => l.kind === 'torch' && l.via); d += 5) {
+        plan = planTrip(ship, site('gateway'), site('mars-colony'), START_JD + d, ctx);
+      }
+      const leg = plan!.legs.find((l) => l.kind === 'torch')!;
+      expect(leg.kind === 'torch' && leg.via).toBeTruthy();
+      const p = vec3();
+      for (let i = 0; i <= 200; i++) {
+        evaluatePlan(plan!, leg.t0 + ((leg.t1 - leg.t0) * i) / 200, eph, p);
+        expect(distance(p, vec3())).toBeGreaterThan(0.95 * r);
+      }
+      // Δv exceeds the burn alone (accel × time) by the Earth–Mars velocity difference.
+      const burn = (ship.accelG ?? 0) * 0.009_806_65 * (leg.t1 - leg.t0) * 86_400;
+      expect(plan!.deltaVKmS).toBeGreaterThan(burn + 1);
+    });
   });
 });

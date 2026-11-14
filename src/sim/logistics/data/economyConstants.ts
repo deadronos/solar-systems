@@ -170,5 +170,7 @@ export const ECONOMY_CONSTANTS: EconomyConstants = {
     lowOrbitFactor: 1.05,
     /** Days added per km/s of delta-v when scoring Lambert launch windows. */
     transferDaysPerKmS: 0.5,
+    /** Torch paths bend around a sphere of this radius (AU) about the Sun (inside Mercury). */
+    torchSunKeepOutAU: 0.3,
   },
 };
