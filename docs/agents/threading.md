@@ -38,17 +38,29 @@ The worker (`createEconomyServer`, independent of the Worker API so tests can dr
 - yields through a `MessageChannel` (not `setTimeout`, which is clamped to 4 ms);
 - posts deltas at most every 50 ms while catching up, and immediately once caught up.
 
-A `WorldDelta` carries the **entity tables in full** (ships, settlements, companies, contracts),
-plus events and stats samples appended since the last delta, the event count and the hash
-state. `applyDelta` replaces the replica's maps and ingests the events without notifying
-listeners (#25 tracks making deltas incremental).
+A `WorldDelta` carries, per entity table (ships, settlements, companies, contracts), only the
+entities that **changed** since the last delta, plus the full id order when membership or
+order changed (removals are implied). Then come the events and stats samples appended since
+the last delta, the event count and the hash state. The writer finds changes by comparing a
+JSON signature of each entity with the one it last sent (non-finite numbers are kept apart),
+so the sim needs no dirty marking. `applyDelta` sets the changed entities, rebuilds the map
+order when ids are given, and ingests the events without notifying listeners. Deltas must be
+applied in order, from the first; several queued in one frame are all applied (each is small).
+
+Measured after 20 simulated years (77 ships, 300 contracts): a one-day delta fell from 210 KB
+to 121 KB and an 18-day one from 354 KB to 274 KB. Ships still change on every tick (their
+`stats` and `busyDays`), so they are always resent. Settlements, companies and contracts mostly
+are not. Diffing costs the worker about 0.6 ms per delta.
 
 ## Rules for code that reads the economy
 
 - Treat `sim.logistics` as **read-only** in render and UI code. In worker mode it's a replica
   that is overwritten every delta.
-- **Object identity changes every delta.** Key by value, not by reference: `TrajectoryLayer`
-  uses `planKey(plan)`, and polled UI uses string keys (`usePolledKeyed`).
+- **An entity's object is replaced when any of its fields changes**, and kept otherwise. A
+  ship is replaced on nearly every delta (its stats tick), along with its `plan`, so key plans
+  by value: `TrajectoryLayer` uses `planKey(plan)`. Polled UI uses string keys
+  (`usePolledKeyed`). In inline mode objects are mutated in place, so identity says nothing
+  there either.
 - The replica lags the clock by a few frames (~0.25 s of simulated time). Code that positions
   ships handles a clock ahead of the economy (`shipAnchorBody` treats a ship past its
   `arriveJd` as already docked).

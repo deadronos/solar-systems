@@ -5,6 +5,7 @@ import { Ephemeris } from '../../world/ephemeris.ts';
 import { createWorld } from '../createWorld.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import type { LogisticsWorld } from '../core/world.ts';
+import { applyDelta, createDeltaWriter } from './delta.ts';
 import { createEconomyServer, type EconomyPort, type FromEconomy } from './economy.ts';
 
 /** An in-process stand-in for the worker: messages are structured-cloned and queued. */
@@ -151,5 +152,56 @@ describe('economy worker', () => {
     sim.step(0.1);
     expect(sim.economyMode).toBe('worker');
     expect(sim.economyError).toBe('boom');
+  });
+});
+
+describe('world deltas', () => {
+  const setup = () => {
+    const eph = new Ephemeris(DEFAULT_CATALOG);
+    const world = createWorld(DEFAULT_SCENARIO, eph, { controllers: true });
+    const replica = createWorld(DEFAULT_SCENARIO, eph, { controllers: false });
+    const write = createDeltaWriter(world);
+    const sync = () => {
+      const d = structuredClone(write());
+      applyDelta(replica, d);
+      return d;
+    };
+    sync();
+    return { world, replica, sync };
+  };
+
+  it('sends only changed entities and keeps the identity of the rest', () => {
+    const { world, replica, sync } = setup();
+    const before = new Map(replica.settlements);
+    const [first, second] = [...world.settlements.values()];
+    first!.lastMilestone += 1;
+    const d = sync();
+    expect(d.settlements.changed.map((s) => s.id)).toEqual([first!.id]);
+    expect(d.settlements.ids).toBeNull();
+    expect(d.ships.changed).toHaveLength(0);
+    expect(replica.settlements.get(first!.id)).not.toBe(before.get(first!.id));
+    expect(replica.settlements.get(first!.id)!.lastMilestone).toBe(first!.lastMilestone);
+    expect(replica.settlements.get(second!.id)).toBe(before.get(second!.id));
+  });
+
+  it('mirrors removals, additions and reordering', () => {
+    const { world, replica, sync } = setup();
+    const [a, b] = [...world.settlements.values()];
+    world.settlements.delete(a!.id);
+    world.settlements.delete(b!.id);
+    world.settlements.set(b!.id, b!); // re-added: now last
+    const d = sync();
+    expect(d.settlements.changed).toHaveLength(0);
+    expect([...replica.settlements.keys()]).toEqual([...world.settlements.keys()]);
+  });
+
+  it('tells NaN, Infinity and null apart', () => {
+    const { world, replica, sync } = setup();
+    const s = [...world.settlements.values()][0]!;
+    s.committed = Number.POSITIVE_INFINITY;
+    sync();
+    s.committed = Number.NaN;
+    expect(sync().settlements.changed).toHaveLength(1);
+    expect(replica.settlements.get(s.id)!.committed).toBeNaN();
   });
 });
