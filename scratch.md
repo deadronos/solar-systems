@@ -1,25 +1,33 @@
 # Next steps
 
-Working notes on which open issues to tackle next (as of 2026-11-13). Not a design doc.
+Working notes on which open issues to tackle next (as of 2026-11-14). Not a design doc.
 
 ## Done
 
 - PR #43: #24 event log, #13 `PriceChanged` bands, #18 barycenters, #23 moon facing, #26 (part).
 - PR #44: #36 orbit trails, #35 real starfield, #26 (rest).
-- Branch `feat/money-flow`: #11 money ledger and conservation; fees, upkeep and penalties to
+- PR #45: #11 money ledger and conservation; fees, upkeep and penalties to
   settlements; GDP stipend; Earth export bounty; colony sell orders; price-elastic Earth;
   half of each ship's price to the yard. Colony money is steady in total but pools at Ceres
   (needs #14). Most sell orders expire unfilled.
-- Branch `feat/investment`: #14 settlements invest (expand or build facilities from imported
+- PR #46: #14 settlements invest (expand or build facilities from imported
   kits), machinery maintenance and wear, life-support reserve in production. Population 70k
-  → 69k at year 20 with almost no shortages; fleet grows to ~63 ships.
+  → 69k at year 20 with almost no shortages; fleet grows to ~63 ships. PR #47: weekly haul
+  pricing and a contract shortlist (perf). Released as v0.3.0.
+- Branch `feat/inbound-awareness`: #16 companies see rivals' inbound cargo, weighted by a
+  per-personality `competitionWeight`. Over 20 years: rerouted unsold cargo 391 → 168,
+  sales below purchase price 10.5% → 4.5%, `SellCargo:no-demand` 14 → 0, population
+  69.7k → 72.0k. It exposed a #14 trap (Gateway built a fuel plant it could never sell from
+  and starved), fixed with: output valued at local price only for the local gap, idle
+  capacity counted, outbound local shuttle to Earth, survival budget only for the people's
+  share of a survival good.
 
 Every remaining issue is labelled `explore`: each needs a design decision before code (see
 `docs/agents/workflow.md`). The options below are starting points for that decision.
 
 ## 1. Economy (#5): start here, highest gameplay impact
 
-**#11 Colony liquidity drain**: done on `feat/money-flow` (see above). Leftovers: the Ceres
+**#11 Colony liquidity drain**: done in PR #45 (see above). Leftovers: the Ceres
 pooling and the low sell-order fill rate.
 
 **#11 (original notes)**
@@ -32,7 +40,7 @@ pooling and the low sell-order fill rate.
   the stipend with population or GDP.
 - Decide the money-flow model first: it shapes #14, #15 and #16.
 
-**#14**: done on `feat/investment`. Original notes: only housing grew, and industry is frozen at 2040.
+**#14**: done in PR #46. Original notes: only housing grew, and industry is frozen at 2040.
 Depends on #11 (colonies need money to invest). Options: buy machinery and habitat modules from the
 treasury, driven by local prices; give facilities depreciation so machinery has steady demand.
 
@@ -40,9 +48,14 @@ treasury, driven by local prices; give facilities depreciation so machinery has 
 thin market by 4× and there is no slippage. Options: price inertia (move toward target over time),
 order-size slippage, real depth for deep markets.
 
-**#16 AI herding**: companies don't see each other's inbound cargo, so ships converge on the same
-sale (22 `SellCargo:no-demand` in the soak). Option: expose inbound tonnage per settlement and
-good in `CompanyView`; personalities weight it differently.
+**#16 AI herding**: done on `feat/inbound-awareness`. Leftovers: competition ignores arrival
+times, and there's no soft demand booking.
+
+**Fragility (new, no issue yet)**: the 20-year soak is chaotic. Small AI changes move it onto
+different paths, and with one uniform `competitionWeight` most values from 0 to 1 starved a
+colony (Gateway or Luna) for over a year. Gateway lives on fuel exports to Earth, and they stop
+paying once its own sales drive Earth's fuel price down. Nothing closes an unprofitable
+facility. Worth a robustness test that runs several perturbed scenarios.
 
 ## 2. Physics (#6)
 
@@ -74,11 +87,11 @@ good in `CompanyView`; personalities weight it differently.
 ## Housekeeping
 
 - GitGuardian flags `src/render/data/brightStars.ts` (base64 star data) as a "Generic Password".
-  Mark the incident as a false positive in the dashboard; consider a `.gitguardian.yaml` that
-  ignores the path so a regenerated file doesn't trip it again.
+  `.gitguardian.yaml` now ignores the path; the existing incident still needs marking as a
+  false positive in the dashboard.
 
 ## Suggested sequencing
 
-- Most impact: design pass on #11, then #14 and #16 on top of it.
+- Most impact: #15 price formation, then the soak fragility above.
 - Contained physics win: the cheap first step of #21.
 - Scaling: #25 before large fleets, then #27.

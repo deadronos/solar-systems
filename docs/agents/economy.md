@@ -145,9 +145,10 @@ no project and idle workers evaluates every recipe in sorted id order:
 - **Build** a new one sized for up to `newFacilityWorkers` idle workers. Processing recipes
   can be built anywhere; extraction recipes (no inputs) only on the site's `deposits`.
 - **Margin per day** = added rate × (outputs − inputs) − maintenance. Output is worth the
-  local price while local use exceeds local output, otherwise Earth's price ×
-  `exportNetback`. Inputs that local output can't cover cost the import price (the dearer
-  of local and Earth's).
+  local price only for the share that fills the gap between local use and local supply
+  (the larger of actual output and installed capacity, so an idle plant still counts); the
+  rest is worth Earth's price × `exportNetback` (`outputValue`). Inputs that local output
+  can't cover cost the import price (the dearer of local and Earth's).
 - A **build kit** (`kitPerWorker` × added workers: machinery and steel) must be affordable
   from funds beyond the survival reserve and pay back within `maxPaybackDays`.
 - **Urgent life support** (a survival output below `survivalMargin` × consumption) wins
@@ -164,7 +165,15 @@ buy orders. When the kit is in stock it is consumed and `FacilityBuilt` fires. A
 falls below `contracts.postThreshold` times the desired level (half by default):
 
 - **Local shuttle**: a same-body neighbour (e.g. Gateway ↔ Earth Exchange) sells directly. No
-  ship is needed, and payment is immediate.
+  ship is needed, and payment is immediate. It also runs outbound (`shuttleSurplus`): a
+  producer on the same body as a deep market sells stock above `sellOrderStockMultiple` ×
+  target straight to it at its bid, less both port fees, instead of posting a sell order.
+  The event is the same `LocalShuttle`, with the deep market as `settlementId`.
+- **Budget**: survival goods may use `maxTreasuryFraction` of available funds; other goods
+  only what is left above the survival reserve, times `nonSurvivalTreasuryFraction`. For a
+  survival good that industry also uses (water for electrolysis), only the population's
+  share of consumption (`lifeSupportShare`) gets the survival budget, so a factory can't
+  spend the money kept for food.
 - Hauls are priced (fee, lead time, deadline) with the cheapest tier 1–2 class, from orbital
   geometry at the start of the current 7-day week, so pricing re-solves trips at most weekly.
 - **Freight**: goods are _reserved_ at the cheapest source (stock removed). The buyer pays the

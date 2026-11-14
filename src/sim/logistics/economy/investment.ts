@@ -138,7 +138,7 @@ function evaluate(
   let value = 0;
   let urgentGood: GoodId | null = null;
   for (const o of recipe.outputs) {
-    value += o.qty * outputValue(world, s, o.good);
+    value += o.qty * outputValue(world, s, o.good, addRatePerDay * o.qty);
     const e = s.market[o.good];
     const survival = world.goods.get(o.good)?.category === 'survival';
     if (survival && e.productionPerDay < e.consumptionPerDay * c.survivalMargin) {
@@ -175,13 +175,37 @@ function earthPrice(world: LogisticsWorld, good: GoodId): number {
 }
 
 /**
- * Value of one more tonne of output: the local price while local use exceeds local output,
- * otherwise what exporting it to Earth would net after hauling.
+ * Average value per tonne of `addPerDay` more output: the local price for the part that
+ * fills the gap between local use and local output, and what exporting the rest to Earth
+ * would net after hauling. Pricing all of a big plant's output at a scarce local price made
+ * a 195 t/day fuel plant look like it paid back in weeks at a station using a few tonnes a
+ * day; it then bankrupted the station importing water to feed it.
  */
-function outputValue(world: LogisticsWorld, s: Settlement, good: GoodId): number {
+export function outputValue(
+  world: LogisticsWorld,
+  s: Settlement,
+  good: GoodId,
+  addPerDay: number,
+): number {
   const e = s.market[good];
-  if (e.productionPerDay < e.consumptionPerDay) return e.price;
-  return earthPrice(world, good) * world.constants.industry.exportNetback;
+  const netback = earthPrice(world, good) * world.constants.industry.exportNetback;
+  if (!(addPerDay > 0)) return e.productionPerDay < e.consumptionPerDay ? e.price : netback;
+  // Capacity counts as supply even while idle (short of inputs), or a second plant looks
+  // as needed as the first.
+  const supply = Math.max(e.productionPerDay, outputCapacity(world, s, good));
+  const local = Math.min(addPerDay, Math.max(0, e.consumptionPerDay - supply));
+  return (local * e.price + (addPerDay - local) * netback) / addPerDay;
+}
+
+/** Tonnes per day of `good` the settlement's facilities can make at full rate. */
+function outputCapacity(world: LogisticsWorld, s: Settlement, good: GoodId): number {
+  let t = 0;
+  for (const f of s.facilities) {
+    for (const o of world.recipes.get(f.recipeId)?.outputs ?? []) {
+      if (o.good === good) t += f.maxRatePerDay * o.qty;
+    }
+  }
+  return t;
 }
 
 /** Cost of bringing a good in: the dearer of the local price and Earth's. */

@@ -172,6 +172,12 @@ export interface Personality {
   minMarginPct: number;
   /** -1 = pure trader … +1 = pure contract carrier. */
   contractVsTradeBias: number;
+  /**
+   * 0..1: share of rivals' inbound cargo the company assumes lands before its own, cutting
+   * the demand and price it expects at a destination (#16). Defaults to
+   * `ai.defaultCompetitionWeight`.
+   */
+  competitionWeight?: number;
   expansionCashThreshold: number;
   targetUtilisation: number;
 }
@@ -354,6 +360,7 @@ export interface EconomyConstants {
     lowCashThresholdFraction: number;
     lowUtilisationThreshold: number;
     shipPurchaseCashFraction: number;
+    defaultCompetitionWeight: number;
   };
   nav: {
     surfaceLegDays: number;

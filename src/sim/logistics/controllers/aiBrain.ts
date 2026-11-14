@@ -269,7 +269,10 @@ export class AiBrain implements CompanyController {
     }
   }
 
-  /** Settlement (other than `exclude`) paying the most for `qty` of a good, if any. */
+  /**
+   * Settlement (other than `exclude`) expected to pay the most for `qty` of a good, after the
+   * cargo already heading there (see `#incoming`), if any.
+   */
   #bestBuyer(
     view: CompanyView,
     good: GoodId,
@@ -278,8 +281,10 @@ export class AiBrain implements CompanyController {
   ): { id: string; bid: number } | null {
     let best: { id: string; bid: number } | null = null;
     for (const s of view.settlements()) {
-      if (s.id === exclude || view.demandRoom(s.id, good) < qty) continue;
-      const bid = view.bid(s.id, good, qty);
+      if (s.id === exclude) continue;
+      const incoming = this.#incoming(view, s.id, good);
+      if (view.demandRoom(s.id, good) - incoming < qty) continue;
+      const bid = view.bid(s.id, good, qty, incoming);
       if (bid > 0 && (!best || bid > best.bid)) best = { id: s.id, bid };
     }
     return best;
@@ -353,8 +358,10 @@ export class AiBrain implements CompanyController {
       if (held <= 0) continue;
       for (const s of view.settlements()) {
         if (s.id === here) continue;
-        const q = Math.min(held, view.demandRoom(s.id, g));
-        const v = view.bid(s.id, g, q) * q;
+        const incoming = this.#incoming(view, s.id, g);
+        const q = Math.min(held, view.demandRoom(s.id, g) - incoming);
+        if (q <= 1e-6) continue;
+        const v = view.bid(s.id, g, q, incoming) * q;
         if (v > 0 && (!best || v > best.value)) best = { id: s.id, value: v, good: g };
       }
     }
@@ -461,11 +468,6 @@ export class AiBrain implements CompanyController {
     }
 
     // B) Trades from here, and C) trades after repositioning to a cheap source.
-    const reservedQty = (dest: string, good: GoodId) =>
-      [...this.#jobs.values()].reduce(
-        (a, j) => a + (j.kind === 'trade' && j.destId === dest && j.good === good ? j.qty : 0),
-        0,
-      );
     const raw: {
       source: string;
       dest: string;
@@ -486,11 +488,10 @@ export class AiBrain implements CompanyController {
         if (maxQty < Math.max(1, cls.cargoT * view.ai.minLoadFraction)) continue;
         for (const dest of view.settlements()) {
           if (dest.id === source.id) continue;
-          const qty = Math.floor(
-            Math.min(maxQty, view.demandRoom(dest.id, g) - reservedQty(dest.id, g)),
-          );
+          const incoming = this.#incoming(view, dest.id, g);
+          const qty = Math.floor(Math.min(maxQty, view.demandRoom(dest.id, g) - incoming));
           if (qty < Math.max(1, cls.cargoT * view.ai.minLoadFraction)) continue;
-          const bid = view.bid(dest.id, g, qty);
+          const bid = view.bid(dest.id, g, qty, incoming);
           if (bid <= ask * (1 + p.minMarginPct)) continue;
           const margin = (bid - ask) * qty * (reposition ? view.ai.repositionMarginWeight : 1);
           raw.push({ source: source.id, dest: dest.id, good: g, qty, ask, bid, margin });
@@ -677,6 +678,19 @@ export class AiBrain implements CompanyController {
     if (this.#fuelCost(view, from, est) > view.company.cash) return false;
     cmds.push({ type: 'PlanAndDispatch', shipId: ship.id, toSiteId: to });
     return true;
+  }
+
+  /**
+   * Tonnes of a good expected to land at `dest` ahead of this company's next sale: its own
+   * trade jobs bound there, plus the personality's share of rivals' inbound cargo (#16).
+   */
+  #incoming(view: CompanyView, dest: string, good: GoodId): number {
+    let own = 0;
+    for (const j of this.#jobs.values()) {
+      if (j.kind === 'trade' && j.destId === dest && j.good === good) own += j.qty;
+    }
+    const weight = view.personality.competitionWeight ?? view.ai.defaultCompetitionWeight;
+    return own + weight * view.inbound(dest, good);
   }
 
   #spare(view: CompanyView, siteId: string, good: GoodId): number {

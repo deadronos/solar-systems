@@ -2,7 +2,7 @@ import { TICK_DAYS } from '../core/time.ts';
 import { sortedIds } from '../core/sortedIds.ts';
 import type { LogisticsWorld } from '../core/world.ts';
 import { penaltyFor } from '../core/commands.ts';
-import { askPrice, recordDeepTrade, spareStock } from './markets.ts';
+import { askPrice, bidPrice, recordDeepTrade, spareStock } from './markets.ts';
 import { companyPays, creditSettlement } from './money.ts';
 import { availableFunds, commit, outstanding, release } from './treasury.ts';
 import { GOOD_IDS, type Contract, type GoodId, type Settlement } from './types.ts';
@@ -128,6 +128,14 @@ export function survivalReserve(world: LogisticsWorld, s: Settlement): number {
   return perDay * c.contracts.survivalTreasuryReserveDays;
 }
 
+/** Share (0..1) of a settlement's use of a good that is its population's survival needs. */
+export function lifeSupportShare(world: LogisticsWorld, s: Settlement, good: GoodId): number {
+  const perCapita = world.constants.population.needsPerCapitaPerDay.survival[good] ?? 0;
+  const consumption = s.market[good].consumptionPerDay;
+  if (!(consumption > 0)) return 1;
+  return Math.min(1, (s.population * perCapita) / consumption);
+}
+
 function post(
   world: LogisticsWorld,
   buyer: Settlement,
@@ -144,9 +152,12 @@ function post(
   if (!survival && buyer.inShortage) return;
   // Only money not already promised to other orders may be committed.
   const funds = availableFunds(buyer);
-  const budget = survival
-    ? funds * c.maxTreasuryFraction
-    : Math.max(0, funds - survivalReserve(world, buyer)) * c.nonSurvivalTreasuryFraction;
+  const guarded =
+    Math.max(0, funds - survivalReserve(world, buyer)) * c.nonSurvivalTreasuryFraction;
+  // Only the population's own use of a survival good gets the life-support budget. Industry
+  // using it as an input (water for electrolysis) must not spend the reserve kept for food.
+  const lifeShare = survival ? lifeSupportShare(world, buyer, good) : 0;
+  const budget = lifeShare * funds * c.maxTreasuryFraction + (1 - lifeShare) * guarded;
 
   // Local shuttle: neighbours on the same body (e.g. Gateway ↔ Earth Exchange) are one
   // economy — top up straight from them whenever stock in hand runs low. No ship needed.
@@ -229,6 +240,47 @@ function post(
     reward,
     deadlineDays: Math.max(c.minDeadlineDays, c.deadlineTripMultiple * (trip?.days ?? 0)),
   });
+}
+
+/**
+ * Local shuttle, outbound: a producer on the same body as a deep market (Gateway above Earth
+ * Exchange) sells stock above `sellOrderStockMultiple` × target straight to it at its bid,
+ * paying both port fees. Without this a station's exports waited for a passing trader, and
+ * investment valued them at an Earth netback the station could never collect. Returns true
+ * when it sold, so no sell order is posted for the same goods.
+ */
+function shuttleSurplus(world: LogisticsWorld, seller: Settlement, good: GoodId): boolean {
+  const c = world.constants.contracts;
+  const e = seller.market[good];
+  if (e.targetStock <= 0 || e.productionPerDay <= e.consumptionPerDay) return false;
+  const qty = Math.floor(e.stock - c.sellOrderStockMultiple * e.targetStock);
+  if (qty < c.minSellOrderT) return false;
+  let buyer: Settlement | null = null;
+  for (const id of sortedIds(world.settlements)) {
+    const s = world.settlements.get(id)!;
+    if (s.isDeepMarket && s.site.bodyId === seller.site.bodyId) {
+      buyer = s;
+      break;
+    }
+  }
+  if (!buyer) return false;
+  const proceeds =
+    bidPrice(buyer.market[good], world.constants.markets, Number.POSITIVE_INFINITY, qty) * qty -
+    2 * world.constants.ships.dockingFee;
+  if (!(proceeds > 0)) return false;
+  creditSettlement(world, buyer, -proceeds);
+  creditSettlement(world, seller, proceeds);
+  e.stock -= qty;
+  recordDeepTrade(buyer, good, qty);
+  world.events.append(world.jd, {
+    type: 'LocalShuttle',
+    settlementId: buyer.id,
+    pickupSettlementId: seller.id,
+    good,
+    qty,
+    cost: proceeds,
+  });
+  return true;
 }
 
 /**
@@ -388,7 +440,7 @@ export function generateContracts(world: LogisticsWorld): void {
     for (const g of GOOD_IDS) {
       // Open orders count as inbound, so this posts more only while still short.
       if (s.market[g].consumptionPerDay > 0) post(world, s, g, inbound);
-      postSellOrder(world, s, g, selling);
+      if (!shuttleSurplus(world, s, g)) postSellOrder(world, s, g, selling);
     }
   }
 }

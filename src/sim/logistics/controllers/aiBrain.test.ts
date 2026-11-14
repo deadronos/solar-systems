@@ -111,6 +111,63 @@ describe('AiBrain', () => {
     expect(rejected).toHaveLength(0);
   });
 
+  describe("rivals' inbound cargo (#16)", () => {
+    /** World with our trader at Earth and a rival ship bound for the colony with `qty` t. */
+    const withRivalCargo = (qty: number, state: 'in_transit' | 'docked' = 'in_transit') => {
+      const rival = company({ id: 'rival', personalityId: 'bulk' });
+      const w = createWorld(scenario([company(), rival]), eph);
+      const ship = [...w.ships.values()].find((s) => s.companyId === 'rival')!;
+      const plan = w.nav.estimateCached(
+        w.shipClassOf(ship),
+        w.settlements.get('earth-exchange')!,
+        w.settlements.get('col')!,
+        w.jd,
+      )!;
+      ship.state = state;
+      ship.siteId = state === 'docked' ? 'earth-exchange' : null;
+      ship.plan = {
+        ...plan,
+        classId: ship.classId,
+        fromSiteId: 'earth-exchange',
+        toSiteId: 'col',
+        legs: [],
+      };
+      ship.cargo = { electronics: qty };
+      return w;
+    };
+
+    it("the view reports only rivals' cargo that is on its way", () => {
+      const w = withRivalCargo(120);
+      expect(createCompanyView(w, 'ai').inbound('col', 'electronics')).toBe(120);
+      expect(createCompanyView(w, 'ai').inbound('col', 'food')).toBe(0);
+      // A company never counts its own ships as competition.
+      expect(createCompanyView(w, 'rival').inbound('col', 'electronics')).toBe(0);
+      const docked = withRivalCargo(120, 'docked');
+      expect(createCompanyView(docked, 'ai').inbound('col', 'electronics')).toBe(0);
+    });
+
+    it('a projected bid falls with stock expected to land first, and matches the plain bid at 0', () => {
+      const v = createCompanyView(withRivalCargo(0), 'ai');
+      const plain = v.bid('col', 'electronics', 10);
+      expect(plain).toBeGreaterThan(0);
+      expect(v.bid('col', 'electronics', 10, 0)).toBe(plain);
+      expect(v.bid('col', 'electronics', 10, 50)).toBeLessThan(plain);
+      // Earth is a deep market: one trader's inbound cargo doesn't move its quote.
+      expect(v.bid('earth-exchange', 'ore', 10, 1e4)).toBe(v.bid('earth-exchange', 'ore', 10));
+    });
+
+    it('stops chasing a sale that rivals already fill', () => {
+      const decide = (qty: number) =>
+        new AiBrain().decide(createCompanyView(withRivalCargo(qty), 'ai'), [{ kind: 'periodic' }]);
+      const buys = (qty: number) =>
+        decide(qty).filter((c) => c.type === 'BuyCargo' && c.good === 'electronics');
+      expect(buys(0)).toHaveLength(1);
+      // Enough inbound cargo, even at the arbitrageur's weight, to fill the colony's demand.
+      const room = createCompanyView(withRivalCargo(0), 'ai').demandRoom('col', 'electronics');
+      expect(buys(Math.ceil(room / 0.9) + 1)).toHaveLength(0);
+    });
+  });
+
   it('discounts long trades by risk aversion', () => {
     const revenue = 110;
     const cost = 100;

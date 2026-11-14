@@ -155,6 +155,8 @@ export const ECONOMY_CONSTANTS: EconomyConstants = {
     lowCashThresholdFraction: 0.1,
     lowUtilisationThreshold: 0.4,
     shipPurchaseCashFraction: 0.5,
+    /** Personality `competitionWeight` when a personality doesn't set one. */
+    defaultCompetitionWeight: 0.5,
   },
   nav: {
     /** Hold duration for ascent or descent. */

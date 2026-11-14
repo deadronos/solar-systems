@@ -5,7 +5,8 @@ import { START_JD } from '../core/time.ts';
 import { createWorld } from '../createWorld.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { SETTLEMENTS } from '../data/settlements.ts';
-import { expireContract } from './contracts.ts';
+import { expireContract, lifeSupportShare } from './contracts.ts';
+import { ledgerTotal, moneySupply } from './money.ts';
 import { availableFunds, outstanding } from './treasury.ts';
 import type { CompanyDef, ScenarioConfig, SettlementDef } from './types.ts';
 
@@ -234,5 +235,48 @@ describe('contracts', () => {
     expect(w.companies.get('t')!.cash).toBeCloseTo(cash + c.reward, 3);
     expect(col.committed).toBeCloseTo(committed - c.reward, 3);
     expect(col.treasury).toBeCloseTo(treasury - c.reward, 3);
+  });
+
+  it('a station sells its surplus straight to the deep market below it', () => {
+    const station = colony({
+      id: 'station',
+      name: 'Station',
+      site: { bodyId: 'earth', kind: 'orbit' },
+    });
+    const w = createWorld(scenario([earth, station]), eph);
+    const s = w.settlements.get('station')!;
+    const e = s.market.fuel;
+    e.productionPerDay = 50;
+    e.stock = 100_000;
+    const supply0 = moneySupply(w);
+    const treasury0 = s.treasury;
+    w.advanceTo(START_JD + 1);
+    const sale = w.events
+      .recent(500)
+      .find(
+        (x) => x.type === 'LocalShuttle' && x.pickupSettlementId === 'station' && x.good === 'fuel',
+      );
+    expect(sale).toBeDefined();
+    if (sale?.type !== 'LocalShuttle') return;
+    expect(sale.settlementId).toBe('earth-exchange');
+    expect(e.stock).toBeLessThanOrEqual(100_000 - sale.qty + 1e-6);
+    expect(s.treasury).toBeGreaterThan(treasury0);
+    expect(moneySupply(w) - supply0).toBeCloseTo(ledgerTotal(w.ledger), 3);
+    // No sell order for goods already sold.
+    expect(
+      open(w, 'fuel').filter((c) => c.kind === 'export' && c.settlementId === 'station'),
+    ).toHaveLength(0);
+  });
+
+  it("gives only the population's share of a survival good the life-support budget", () => {
+    const w = createWorld(scenario([colony()]), eph);
+    const s = w.settlements.get('col')!;
+    const perCapita = w.constants.population.needsPerCapitaPerDay.survival.water ?? 0;
+    const people = s.population * perCapita;
+    s.market.water.consumptionPerDay = people;
+    expect(lifeSupportShare(w, s, 'water')).toBeCloseTo(1, 6);
+    // Industry now uses three times what the people drink.
+    s.market.water.consumptionPerDay = 4 * people;
+    expect(lifeSupportShare(w, s, 'water')).toBeCloseTo(0.25, 6);
   });
 });
