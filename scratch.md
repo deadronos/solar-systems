@@ -22,7 +22,7 @@ Working notes on which open issues to tackle next (as of 2026-11-14). Not a desi
   capacity counted, outbound local shuttle to Earth, survival budget only for the people's
   share of a survival good.
 
-- PR #49: robustness soaks and production gate (merged). Branch `feat/price-formation`: #15.
+- PR #50: #15 price formation (merged). PR #49: robustness soaks and production gate (merged).
 - PR #48: #16 inbound awareness (merged). Branch `test/soak-robustness`: perturbed 20-year
   soaks (`soakHarness.ts`) and a production profitability gate. Before the gate, 5 of 11
   perturbed runs starved a colony for over a year (Gateway in 4, up to 1,960 days); after it,
@@ -64,7 +64,10 @@ start + 700 days loses some population (66.5k vs 72k at year 20) without breakin
 
 ## 2. Physics (#6)
 
-- **#21 Torch trajectories**: straight-line brachistochrone ignores the origin/target velocity
+- **#21 Torch trajectories**: done on `feat/torch-sun-avoidance` (velocity-matching Δv,
+  convergence tolerance, Sun keep-out waypoint). Measured first: velocity matching is 1–4% of
+  Δv, gravity ≤ 2%, but 2–6% of torch trips crossed within 0.1 AU of the Sun. GPU solving was
+  ruled out (breaks determinism and headless runs). Original notes: straight-line brachistochrone ignores the origin/target velocity
   difference and solar gravity. Cheap first step: add `|v_target − v_origin|` to the Δv budget and
   a convergence check on the fixed-point loop.
 - **#19 Patched-conic Δv**: costs use raw v∞, not `√(v∞² + 2μ/r) − √(μ/r)` from a parking orbit;
@@ -97,6 +100,6 @@ start + 700 days loses some population (66.5k vs 72k at year 20) without breakin
 
 ## Suggested sequencing
 
-- Most impact: the cheap first step of #21, or #20 (rocket-equation fuel; touches balance).
+- Most impact: #20 (rocket-equation fuel; touches balance), then #19.
 - Contained physics win: the cheap first step of #21.
 - Scaling: #25 before large fleets, then #27.

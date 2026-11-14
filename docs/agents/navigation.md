@@ -24,12 +24,12 @@ this before changing `src/sim/logistics/navigation/*` or ship classes.
 
 ## Engine tiers (`ShipClass.tier`)
 
-| Tier                      | Model                                                                                                                                                                                                                                                                           | Cost                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 1 chemical, 2 nuclear/ion | Heliocentric **Lambert** transfers (single-rev, prograde) over a launch-window grid: 24 departures across one synodic period × 16 times of flight (0.4–2× Hohmann). Scores arrival time plus a configurable weight on Δv. Same-planet-system hops use a planet-centred Hohmann. | Fuel = Δv × `fuelTPerKmS`; must fit `deltaVBudgetKmS` minus surface ascent/descent. |
-| 3 fusion torch            | Straight-line accelerate / flip / decelerate toward the target's predicted position (5 fixed-point iterations).                                                                                                                                                                 | Fuel = Δv × `fuelTPerKmS`.                                                          |
-| 4 antimatter              | Torch profile with a speed cap (`maxSpeedFractionC`).                                                                                                                                                                                                                           | Exotic credits per km/s, sold only at shipyards.                                    |
-| 5 jump drive              | Charge for `jumpChargeHours`, then a straight-line FTL jump.                                                                                                                                                                                                                    | Flat exotic cost per jump, shipyards only.                                          |
+| Tier                      | Model                                                                                                                                                                                                                                                                                                                  | Cost                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 1 chemical, 2 nuclear/ion | Heliocentric **Lambert** transfers (single-rev, prograde) over a launch-window grid: 24 departures across one synodic period × 16 times of flight (0.4–2× Hohmann). Scores arrival time plus a configurable weight on Δv. Same-planet-system hops use a planet-centred Hohmann.                                        | Fuel = Δv × `fuelTPerKmS`; must fit `deltaVBudgetKmS` minus surface ascent/descent. |
+| 3 fusion torch            | One accelerate / flip / decelerate profile toward the target's predicted position (fixed-point iteration to 60 s, at most 10). A path that would pass inside `nav.torchSunKeepOutAU` (0.3 AU) of the Sun bends through one waypoint on that sphere (`sunWaypoint`). Δv = burn + the origin–target velocity difference. | Fuel = Δv × `fuelTPerKmS`.                                                          |
+| 4 antimatter              | Torch profile with a speed cap (`maxSpeedFractionC`).                                                                                                                                                                                                                                                                  | Exotic credits per km/s, sold only at shipyards.                                    |
+| 5 jump drive              | Charge for `jumpChargeHours`, then a straight-line FTL jump.                                                                                                                                                                                                                                                           | Flat exotic cost per jump, shipyards only.                                          |
 
 - **Surface sites** add ascent and descent Δv of `nav.surfaceDvFactor` × circular speed
   and hold legs of `nav.surfaceLegDays` (default 1.2× and 6 hours).
@@ -41,7 +41,8 @@ this before changing `src/sim/logistics/navigation/*` or ship classes.
 ## Plans and legs
 
 `TrajectoryPlan.legs` is an ordered list of `hold` (at a body), `conic` (state vector plus μ,
-optionally around a planet), `torch` and `jump` legs, each covering `[t0, t1]` in Julian dates.
+optionally around a planet), `torch` (optionally bent through `via`) and `jump` legs, each
+covering `[t0, t1]` in Julian dates.
 `evaluatePlan(plan, jd, eph, out)` gives the heliocentric ship position, clamped to the plan.
 The renderer samples it once per plan. Plans are plain data and are mirrored to the main thread.
 
@@ -50,7 +51,8 @@ The renderer samples it once per plan. Plans are plain data and are mirrored to 
 - **Transfer Δv** counts hyperbolic-excess differences only, with no parking-orbit
   escape or capture (Oberth) (#19).
 - **Fuel** is linear in Δv and ignores cargo mass (#20).
-- **Torch flights** ignore solar gravity and the velocity difference between origin and
-  target (#21).
+- **Torch flights** ignore solar gravity (at most 2% of the weakest torch's thrust outside
+  the keep-out sphere), and velocity matching adds Δv but no time. The detour waypoint makes
+  a sharp corner rather than a curve.
 
 Treat these as the current spec. If you fix one, update this section and the issue.
