@@ -261,6 +261,11 @@ export interface Contract {
   escrowCost: number;
   /** Past its deadline but still deliverable (loaded freight); the penalty was charged. */
   late: boolean;
+  /**
+   * Delivery: the per-tonne goods value the reward was last priced at (local price plus
+   * premium). Open survival orders are repriced as it rises. Absent in old snapshots.
+   */
+  unitReward?: number;
 }
 
 export interface EconomyConstants {
@@ -278,6 +283,7 @@ export interface EconomyConstants {
     deepPriceClampMin: number;
     deepPriceClampMax: number;
     earthExportBounty: number;
+    priceInertiaDays: number;
   };
   population: {
     satisfactionEmaDays: number;

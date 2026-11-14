@@ -23,11 +23,11 @@ interface CompanyController {
   once per tick, in sorted id order, during the `controllers` phase (the last one).
   To add a wake reason, add it to `WakeReason` _and_ emit it in `installControllers`.
 - **`CompanyView`** (`createCompanyView`) is a company-scoped window: own ships, settlements,
-  open contracts, market quotes (`ask`, `bid`, `demandRoom`), trip estimates, fuel prices and
+  open contracts, market quotes (`ask(…, qty)`, `bid(…, qty)`, `demandRoom`; both price
+  the whole order along the curve, see `quoteBuy` / `quoteSell` in [economy.md](economy.md)), trip estimates, fuel prices and
   the scenario docking fee. `inbound(settlement, good)` is public tracking data: tonnes aboard
   _other_ companies' ships bound there (in transit or waiting to depart). `bid(…, incomingT)`
-  prices a sale after `incomingT` more tonnes have landed (`projectedBidPrice`; colonies only,
-  and equal to the plain bid at 0). The view also exposes a read-only copy of the scenario AI policy
+  prices a sale after `incomingT` more tonnes have landed (equal to the plain bid at 0). The view also exposes a read-only copy of the scenario AI policy
   and the source stock reserve fraction shared with contract posting.
   Quotes use the same functions as command validation, so a decision made on the view matches
   what the command will see. Same tick, same state.
@@ -67,8 +67,9 @@ To add a command: add a union member to `Command`, a `case` in `apply()` that va
   - Sell orders (`export` contracts) are scored like trades: the offer price plus legs to the
     seller and on to the best bid, risk-discounted. On loading, the ship's job becomes a
     trade to that buyer.
-  - Trades come from here, or after repositioning to a cheap source. The top 6 raw margins get
-    a real trip estimate.
+  - Trades come from here, or after repositioning to a cheap source. Because prices slip, each
+    pair tries full, half and quarter loads (`LOAD_FRACTIONS`) and keeps the biggest raw
+    margin. The top 6 raw margins get a real trip estimate.
   - **Competition (#16):** at every destination the AI expects `#incoming` tonnes to land
     first: its own trade jobs bound there plus `competitionWeight` × rivals' `inbound`
     (`ai.defaultCompetitionWeight` if unset). That cuts the demand room it plans for and

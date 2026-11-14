@@ -6,7 +6,7 @@ import { createWorld } from '../createWorld.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { SETTLEMENTS } from '../data/settlements.ts';
 import { expireContract } from './contracts.ts';
-import { deepPriceFor } from './markets.ts';
+import { deepPriceFor, quoteSell } from './markets.ts';
 import { ledgerTotal, moneySupply } from './money.ts';
 import type { CompanyDef, ScenarioConfig, SettlementDef } from './types.ts';
 
@@ -117,7 +117,12 @@ describe('money flows', () => {
     const base = e.price;
     e.netSoldT = C.markets.deepMarketDepthT;
     w.advanceTo(START_JD + 0.25);
-    expect(e.price).toBeLessThan(base * 0.6);
+    // Trades see the drop at once; the posted price follows with inertia (#15).
+    const earthS = w.settlements.get('earth-exchange')!;
+    expect(quoteSell(w, earthS, 'steel', 1, Infinity)).toBeLessThan(base * 0.6);
+    expect(e.price).toBeGreaterThan(base * 0.9);
+    w.advanceTo(START_JD + 20);
+    expect(e.price).toBeLessThan(base * 0.75);
     expect(e.price).toBeGreaterThanOrEqual(base * C.markets.deepPriceClampMin - 1e-9);
     w.advanceTo(START_JD + 365);
     expect(e.price).toBeGreaterThan(base * 0.95);

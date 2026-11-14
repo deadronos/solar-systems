@@ -132,6 +132,8 @@ describe('maintenance and the life-support reserve', () => {
       (C.population.needsPerCapitaPerDay.survival.water ?? 0) *
       C.industry.survivalInputReserveDays;
     s.market.water.stock = reserve + 10;
+    // Made locally, so industry may use it (see the surplus test in economy.test.ts).
+    s.market.water.productionPerDay = 1e4;
     const fuel0 = s.market.fuel.stock;
     runProduction(s, w, 0.25);
     expect(s.market.water.stock).toBeCloseTo(reserve, 6);

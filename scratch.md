@@ -22,6 +22,7 @@ Working notes on which open issues to tackle next (as of 2026-11-14). Not a desi
   capacity counted, outbound local shuttle to Earth, survival budget only for the people's
   share of a survival good.
 
+- PR #49: robustness soaks and production gate (merged). Branch `feat/price-formation`: #15.
 - PR #48: #16 inbound awareness (merged). Branch `test/soak-robustness`: perturbed 20-year
   soaks (`soakHarness.ts`) and a production profitability gate. Before the gate, 5 of 11
   perturbed runs starved a colony for over a year (Gateway in 4, up to 1,960 days); after it,
@@ -49,9 +50,10 @@ pooling and the low sell-order fill rate.
 Depends on #11 (colonies need money to invest). Options: buy machinery and habitat modules from the
 treasury, driven by local prices; give facilities depreciation so machinery has steady demand.
 
-**#15 Price formation**: price is a pure function of the stock/target ratio, so one ship swings a
-thin market by 4× and there is no slippage. Options: price inertia (move toward target over time),
-order-size slippage, real depth for deep markets.
+**#15 Price formation**: done on `feat/price-formation` (slippage + inertia; Earth depth came
+with #11). Fleets end smaller (~30 ships at year 20, was ~45), because slippage trims trade
+profits. Also needed: survival goods for industry only from local surplus, and repricing of
+untaken survival orders. Leftover: non-survival orders are never repriced.
 
 **#16 AI herding**: done on `feat/inbound-awareness`. Leftovers: competition ignores arrival
 times, and there's no soft demand booking.
@@ -95,6 +97,6 @@ start + 700 days loses some population (66.5k vs 72k at year 20) without breakin
 
 ## Suggested sequencing
 
-- Most impact: #15 price formation.
+- Most impact: the cheap first step of #21, or #20 (rocket-equation fuel; touches balance).
 - Contained physics win: the cheap first step of #21.
 - Scaling: #25 before large fleets, then #27.

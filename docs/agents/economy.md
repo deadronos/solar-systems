@@ -114,10 +114,19 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
     decaying over `markets.deepMarketRecoveryDays`) moves its price:
     `deepPriceFor` = reference × ((depth + netSoldT)/depth)^−elasticity, clamped to
     [`deepPriceClampMin`, `deepPriceClampMax`]. Every trade with it calls `recordDeepTrade`.
-  - `priceFor` = base × (stock/target)^−elasticity, clamped to [0.25, 4]× base by default.
-  - Settlements sell at `askPrice` (+spread/2) and buy at `bidPrice` (−spread/2). They buy
-    only if they consume the good and can pay from **available funds**, and only up to
-    `markets.maxStockMultiple` × target stock (3× by default).
+  - **Curve:** `priceFor` = base × (stock/target)^−elasticity, clamped to [0.25, 4]× base by
+    default (`deepPriceFor` for deep markets).
+  - **Posted price** (`price`, #15) follows the curve with inertia: each tick it moves
+    `dt / markets.priceInertiaDays` (10 days) of the way. Contracts, investment, the
+    production gate, `PriceChanged` and the HUD use it, so one ship's cargo no longer swings
+    them 4× overnight. `askPrice` / `bidPrice` are posted quotes (±spread/2).
+  - **Trades** use `quoteBuy` / `quoteSell` (`BuyCargo`, `SellCargo`, fuel, local shuttles,
+    sourcing, AI quotes): the curve averaged over the stock the order moves (slippage, 8
+    samples), or the posted price if that is worse for the trader, ±spread/2. Taking the
+    worse of the two means a lagging posted price is never a bargain after a rival has
+    flooded or emptied the market. Settlements buy only if they consume the good and can pay
+    from **available funds**, and only up to `markets.maxStockMultiple` × target stock (3× by
+    default).
 - **Production** (`production.ts`): life-support recipes get workers and inputs first.
   Output is limited by capacity, workers and input stock. Nominal input demand is recorded
   even when inputs are missing, so shortages show up as prices.
@@ -128,6 +137,10 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
     A gated facility records no input demand, so it stops pulling imports. Without it, Gateway
     ran water → fuel on Earth water until its own buying pushed Earth's water price past what
     the fuel fetched, and bankrupted itself.
+  - **Survival surplus:** industry may use a survival good only up to the local surplus:
+    `productionPerDay` minus the people's needs and the inputs of local life support at
+    capacity, shared across facilities in order. It never runs on imports, so a water → fuel
+    plant can't turn a colony's water (and the food plants that need it) into an import.
   - **Life-support reserve:** other recipes may only use stock above
     `industry.survivalInputReserveDays` of the people's survival needs plus the inputs local
     life support uses at capacity (water → fuel, ice → fuel), and record demand only for what
@@ -191,6 +204,9 @@ falls below `contracts.postThreshold` times the desired level (half by default):
   `sellOrderDiscount` below its ask. The goods are reserved. The carrier pays `escrowCost`
   on `LoadContractCargo`, which completes the order (`SellOrderFilled`) and makes the goods
   ordinary cargo. Sell orders are not inbound supply and owe nothing (`outstanding` = 0).
+- **Repricing:** each day an open (untaken) survival delivery order whose goods value
+  (`unitReward`: local price plus premium) has risen by more than 10% is raised to the current
+  value, within `orderBudget`. Only the goods part moves; the haul part keeps its escalation.
 - Unfilled buy orders expire and are reposted with fees raised by 1.5× per expiry (capped at 8× by default).
   Accepted contracts that expire, or are abandoned, fine the carrier `penaltyFraction` of the
   reward (of the price, for sell orders), paid to the settlement that posted the order.
@@ -233,4 +249,5 @@ later.
 
 Colony money holds roughly steady in total (#11), but it still pools at Ceres (the shipyard
 colony and the largest exporter). Most sell orders expire unfilled. Investment only adds
-capacity; nothing closes an unprofitable facility. Prices have no memory or order-size slippage (#15).
+capacity; unprofitable industry idles but is never demolished. Slippage is sampled, not
+integrated exactly, and settlements don't reprice non-survival orders.

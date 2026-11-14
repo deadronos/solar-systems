@@ -1,4 +1,4 @@
-import { addDemand, askPrice, bidPrice, maxBuyQty, recordDeepTrade } from '../economy/markets.ts';
+import { addDemand, maxBuyQty, quoteBuy, quoteSell, recordDeepTrade } from '../economy/markets.ts';
 import { buyShip, companyPays, creditSettlement, external } from '../economy/money.ts';
 import type { Company, Contract, GoodId, Settlement, Ship } from '../economy/types.ts';
 import { planTrip } from '../navigation/planner.ts';
@@ -24,7 +24,7 @@ export type Command =
  */
 export function fuelPricePerTonne(world: LogisticsWorld, site: Settlement, qty: number): number {
   const e = site.market.fuel;
-  if (site.isDeepMarket || e.stock >= qty) return askPrice(e, world.constants.markets);
+  if (site.isDeepMarket || e.stock >= qty) return quoteBuy(world, site, 'fuel', qty);
   return (world.goods.get('fuel')?.basePrice ?? 0) * world.constants.ships.emergencyFuelFactor;
 }
 
@@ -236,7 +236,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (cargoMass(ship) + cmd.qty > world.shipClassOf(ship).cargoT + 1e-9) reject('cargo-full');
       const e = site.market[cmd.good];
       if (e.stock < cmd.qty) reject('insufficient-stock');
-      const price = askPrice(e, c.markets);
+      const price = quoteBuy(world, site, cmd.good, cmd.qty);
       if (price > cmd.maxPrice) reject('price-above-limit');
       spend(world, company, ship, price * cmd.qty, site);
       if (!site.isDeepMarket) e.stock -= cmd.qty;
@@ -262,7 +262,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const e = site.market[cmd.good];
       if (!site.isDeepMarket && cmd.qty > maxBuyQty(e, c.markets) + 1e-9)
         reject('market-saturated');
-      const price = bidPrice(e, c.markets, availableFunds(site), cmd.qty);
+      const price = quoteSell(world, site, cmd.good, cmd.qty, availableFunds(site));
       if (price <= 0) reject('no-demand');
       if (price < cmd.minPrice) reject('price-below-limit');
       if (!site.isDeepMarket) e.stock += cmd.qty;

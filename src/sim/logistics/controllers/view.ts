@@ -3,7 +3,7 @@ import { length, vec3 } from '../../math/vec3.ts';
 import { fuelPricePerTonne } from '../core/commands.ts';
 import { sortedIds } from '../core/sortedIds.ts';
 import type { LogisticsWorld } from '../core/world.ts';
-import { askPrice, maxBuyQty, projectedBidPrice } from '../economy/markets.ts';
+import { maxBuyQty, quoteBuy, quoteSell } from '../economy/markets.ts';
 import { availableFunds } from '../economy/treasury.ts';
 import type { GoodId, Settlement } from '../economy/types.ts';
 import type { CompanyView, DeepReadonly } from './types.ts';
@@ -98,10 +98,10 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
     },
     shipClasses: () => Object.freeze([...world.shipClasses.values()].map(snapshot)),
     market: (sid, good: GoodId) => snapshot(site(sid).market[good]),
-    ask: (sid, good) => askPrice(site(sid).market[good], c.markets),
+    ask: (sid, good, qty = 0) => quoteBuy(world, site(sid), good, qty),
     bid: (sid, good, qty, incomingT = 0) => {
       const s = site(sid);
-      return projectedBidPrice(s, good, c.markets, availableFunds(s), qty, incomingT);
+      return quoteSell(world, s, good, qty, availableFunds(s), incomingT);
     },
     inbound: (sid, good) => (inbound ??= buildInbound()).get(sid)?.[good] ?? 0,
     demandRoom: (sid, good) => {

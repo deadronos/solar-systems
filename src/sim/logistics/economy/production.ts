@@ -41,6 +41,7 @@ export function runProduction(s: Settlement, world: LogisticsWorld, dtDays: numb
   let workers = workforce;
   const reserve = lifeSupportReserve(s, world);
   const prices = unitPrices(s, world);
+  const surplus = survivalSurplus(s, world);
   // Life support first: recipes that output survival goods get workers and inputs first.
   for (const f of survivalFirstOrder(s, world)) {
     const recipe = world.recipes.get(f.recipeId);
@@ -60,7 +61,13 @@ export function runProduction(s: Settlement, world: LogisticsWorld, dtDays: numb
     if (recipe.workersPerUnitPerDay > 0)
       rate = Math.min(rate, workers / recipe.workersPerUnitPerDay);
     const nominal = rate;
-    for (const i of recipe.inputs) rate = Math.min(rate, usable(i.good) / (i.qty * dtDays));
+    for (const i of recipe.inputs) {
+      rate = Math.min(rate, usable(i.good) / (i.qty * dtDays));
+      // Industry runs on the local surplus of survival goods, never on imports.
+      const spare = lifeSupport ? undefined : surplus.get(i.good);
+      if (spare !== undefined) rate = Math.min(rate, spare / i.qty);
+    }
+    rate = Math.max(0, rate);
     // Nominal demand shows shortages as prices, except for reserved goods: industry doesn't
     // get to drive life-support imports.
     for (const i of recipe.inputs) {
@@ -70,8 +77,11 @@ export function runProduction(s: Settlement, world: LogisticsWorld, dtDays: numb
     const used = rate > 0 ? rate / f.maxRatePerDay : 0;
     f.utilisation = f.utilisation === undefined ? used : f.utilisation + (used - f.utilisation) * k;
     if (!(rate > 0)) continue;
-    for (const i of recipe.inputs)
+    for (const i of recipe.inputs) {
       s.market[i.good].stock = Math.max(0, s.market[i.good].stock - rate * i.qty * dtDays);
+      const spare = lifeSupport ? undefined : surplus.get(i.good);
+      if (spare !== undefined) surplus.set(i.good, spare - rate * i.qty);
+    }
     for (const o of recipe.outputs) {
       const qty = rate * o.qty * dtDays;
       s.market[o.good].stock += qty;
@@ -121,6 +131,29 @@ function unitPrices(s: Settlement, world: LogisticsWorld): UnitPrices {
 const pays = (recipe: Recipe, p: UnitPrices): boolean =>
   recipe.outputs.reduce((a, o) => a + o.qty * p.output(o.good), 0) >=
   recipe.inputs.reduce((a, i) => a + i.qty * p.input(i.good), 0);
+
+/**
+ * Tonnes per day of each survival good made here beyond the people's needs and the inputs of
+ * local life support at capacity: all industry may use of it. Without this, a water → fuel
+ * plant at Vesta ate imported water, so food investment (which needs local water) never
+ * counted as urgent and the colony outgrew its food.
+ */
+function survivalSurplus(s: Settlement, world: LogisticsWorld): Map<GoodId, number> {
+  const needs = world.constants.population.needsPerCapitaPerDay.survival;
+  const surplus = new Map<GoodId, number>();
+  for (const good of Object.keys(needs) as GoodId[]) {
+    surplus.set(good, s.market[good].productionPerDay - s.population * (needs[good] ?? 0));
+  }
+  for (const f of s.facilities) {
+    if (!producesSurvival(world, f.recipeId)) continue;
+    for (const i of world.recipes.get(f.recipeId)?.inputs ?? []) {
+      const left = surplus.get(i.good);
+      if (left !== undefined) surplus.set(i.good, left - f.maxRatePerDay * i.qty);
+    }
+  }
+  for (const [g, v] of surplus) surplus.set(g, Math.max(0, v));
+  return surplus;
+}
 
 /**
  * Stock industry must leave alone: `survivalInputReserveDays` of the people's survival needs

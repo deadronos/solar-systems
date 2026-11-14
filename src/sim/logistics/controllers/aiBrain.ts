@@ -38,6 +38,8 @@ interface ShipDecision {
 /** Top raw opportunities that get a (more expensive) trip estimate. */
 const TOP_K = 6;
 /** Open contracts per decision that get trip estimates, ranked by a travel-free profit. */
+/** Load sizes tried for a trade, as fractions of the most the ship and market allow. */
+const LOAD_FRACTIONS = [1, 0.5, 0.25];
 const CONTRACT_TOP_K = 8;
 
 /** Expected profit after discounting revenue for price risk over the trip length. */
@@ -205,7 +207,7 @@ export class AiBrain implements CompanyController {
       return;
     }
     if (here !== c.settlementId && this.#spare(view, here, c.good) >= need) {
-      const ask = view.ask(here, c.good);
+      const ask = view.ask(here, c.good, need);
       if (ask * need <= this.#available(view)) {
         decision.commands.push({
           type: 'BuyCargo',
@@ -305,15 +307,16 @@ export class AiBrain implements CompanyController {
   ): boolean {
     const here = ship.siteId!;
     const cls = view.shipClass(ship.classId);
-    const ask = view.ask(here, job.good);
+    // The quote for the planned load bounds the price per tonne of any smaller one.
     const qty = Math.floor(
       Math.min(
         job.qty,
         cls.cargoT - cargoMass(ship),
         this.#spare(view, here, job.good),
-        this.#available(view) / ask,
+        this.#available(view) / view.ask(here, job.good, job.qty),
       ),
     );
+    const ask = view.ask(here, job.good, qty);
     if (qty < Math.max(1, cls.cargoT * view.ai.minLoadFraction)) return false;
     decision.commands.push({
       type: 'BuyCargo',
@@ -432,12 +435,12 @@ export class AiBrain implements CompanyController {
                 ];
           const t = this.#legs(view, ship, l);
           if (!t || view.jd + t.days > c.deadlineJd) continue;
-          const cost = view.ask(s2.id, c.good) * c.qty + t.cost;
+          const cost = view.ask(s2.id, c.good, c.qty) * c.qty + t.cost;
           if (!best || cost < best.cost) best = { src: s2.id, cost, legs: l };
         }
         if (!best) continue;
         first = best.src;
-        purchase = view.ask(best.src, c.good) * c.qty;
+        purchase = view.ask(best.src, c.good, c.qty) * c.qty;
         if (purchase > cash) continue;
         legs.push(...best.legs);
       }
@@ -482,19 +485,27 @@ export class AiBrain implements CompanyController {
       for (const g of GOOD_IDS) {
         const spare = this.#spare(view, source.id, g);
         if (spare <= 1) continue;
-        const ask = view.ask(source.id, g);
-        if (!(ask > 0)) continue;
-        const maxQty = Math.min(cls.cargoT, spare, cash / ask);
+        const full = view.ask(source.id, g, Math.min(cls.cargoT, spare));
+        if (!(full > 0)) continue;
+        const maxQty = Math.min(cls.cargoT, spare, cash / full);
         if (maxQty < Math.max(1, cls.cargoT * view.ai.minLoadFraction)) continue;
         for (const dest of view.settlements()) {
           if (dest.id === source.id) continue;
           const incoming = this.#incoming(view, dest.id, g);
-          const qty = Math.floor(Math.min(maxQty, view.demandRoom(dest.id, g) - incoming));
-          if (qty < Math.max(1, cls.cargoT * view.ai.minLoadFraction)) continue;
-          const bid = view.bid(dest.id, g, qty, incoming);
-          if (bid <= ask * (1 + p.minMarginPct)) continue;
-          const margin = (bid - ask) * qty * (reposition ? view.ai.repositionMarginWeight : 1);
-          raw.push({ source: source.id, dest: dest.id, good: g, qty, ask, bid, margin });
+          const room = Math.floor(Math.min(maxQty, view.demandRoom(dest.id, g) - incoming));
+          const minLoad = Math.max(1, cls.cargoT * view.ai.minLoadFraction);
+          // Prices slip along the curve, so a smaller load can earn more than a full one.
+          let best: { qty: number; ask: number; bid: number; margin: number } | null = null;
+          for (const f of LOAD_FRACTIONS) {
+            const qty = Math.floor(room * f);
+            if (qty < minLoad) break;
+            const ask = view.ask(source.id, g, qty);
+            const bid = view.bid(dest.id, g, qty, incoming);
+            if (bid <= ask * (1 + p.minMarginPct)) continue;
+            const margin = (bid - ask) * qty * (reposition ? view.ai.repositionMarginWeight : 1);
+            if (!best || margin > best.margin) best = { qty, ask, bid, margin };
+          }
+          if (best) raw.push({ source: source.id, dest: dest.id, good: g, ...best });
         }
       }
     }
@@ -577,7 +588,7 @@ export class AiBrain implements CompanyController {
         let cheapest = Number.POSITIVE_INFINITY;
         for (const s of view.settlements()) {
           if (s.id === c.settlementId || this.#spare(view, s.id, c.good) < c.qty) continue;
-          cheapest = Math.min(cheapest, view.ask(s.id, c.good));
+          cheapest = Math.min(cheapest, view.ask(s.id, c.good, c.qty));
         }
         gain = c.reward - cheapest * c.qty;
       }
@@ -715,7 +726,7 @@ export class AiBrain implements CompanyController {
         [s.id, dest],
       ]);
       if (!t) continue;
-      const cost = view.ask(s.id, good) * qty + t.cost;
+      const cost = view.ask(s.id, good, qty) * qty + t.cost;
       if (!best || cost < best.cost) best = { id: s.id, cost };
     }
     return best?.id ?? null;
