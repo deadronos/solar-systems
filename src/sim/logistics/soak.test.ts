@@ -31,27 +31,6 @@ describe('20-year soak', () => {
   });
 });
 
-describe('performance', () => {
-  it('runs at least 1,000 economy ticks per second headless', { timeout: 60_000 }, () => {
-    const w = createWorld(DEFAULT_SCENARIO, eph(), { controllers: true });
-    // CPU time of this thread, not wall-clock: on CI the other 20-year soaks run in parallel
-    // and compete for the runner, which made a wall-clock guard fail at random.
-    // (`src/sim` has no Node types; the tests run on Node.)
-    const node = globalThis as unknown as {
-      process: { threadCpuUsage(): { user: number; system: number } };
-    };
-    const cpu = () => {
-      const u = node.process.threadCpuUsage();
-      return (u.user + u.system) / 1e6;
-    };
-    const t0 = cpu();
-    const ticks = w.advanceTo(START_JD + 2 * 365);
-    const perSecond = ticks / (cpu() - t0);
-    console.info(`logistics ticks/s (CPU): ${perSecond.toFixed(0)}`);
-    expect(perSecond).toBeGreaterThan(1_000);
-  });
-});
-
 describe('Simulation integration', () => {
   it('never runs backwards, caps speed and lets the clock wait for the economy', () => {
     const sim = new Simulation({ scenario: DEFAULT_SCENARIO, rate: -86_400, maxTicksPerStep: 4 });

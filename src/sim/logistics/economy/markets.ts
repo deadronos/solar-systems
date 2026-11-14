@@ -129,12 +129,24 @@ function curvePrice(
   return priceFor(base, e.stock + deltaT, e.targetStock, c);
 }
 
-/** Sample points for averaging the curve over an order. */
-const SLIPPAGE_SAMPLES = 8;
+/**
+ * Antiderivative of clamp(r^−e, lo, hi) in r, with the price at r ≤ 0 held at `hi` (an empty
+ * market charges the cap).
+ */
+function clampedPowerIntegral(r: number, e: number, lo: number, hi: number): number {
+  const rHi = hi ** (-1 / e); // below: the curve is above the cap
+  const rLo = lo ** (-1 / e); // above: the curve is below the floor
+  const power = (x: number) => (e === 1 ? Math.log(x) : x ** (1 - e) / (1 - e));
+  if (r <= rHi) return hi * r;
+  const atHi = hi * rHi;
+  if (r <= rLo) return atHi + power(r) - power(rHi);
+  return atHi + power(rLo) - power(rHi) + lo * (r - rLo);
+}
 
 /**
  * Average curve price over an order that moves `qty` tonnes into the market (negative: out),
- * starting `fromT` tonnes in: what the order would pay walking down the curve (#15).
+ * starting `fromT` tonnes in: what the order would pay walking down the curve (#15). Exact:
+ * the clamped power curve integrates in closed form.
  */
 function slippedPrice(
   s: Pick<Settlement, 'isDeepMarket'>,
@@ -145,11 +157,27 @@ function slippedPrice(
   c: EconomyConstants['markets'],
 ): number {
   if (qty === 0) return curvePrice(s, e, base, fromT, c);
-  let sum = 0;
-  for (let k = 0; k < SLIPPAGE_SAMPLES; k++) {
-    sum += curvePrice(s, e, base, fromT + (qty * (k + 0.5)) / SLIPPAGE_SAMPLES, c);
+  let r0: number;
+  let r1: number;
+  let lo: number;
+  let hi: number;
+  if (s.isDeepMarket) {
+    const d = c.deepMarketDepthT;
+    r0 = (d + (e.netSoldT ?? 0) + fromT) / d;
+    r1 = r0 + qty / d;
+    lo = c.deepPriceClampMin;
+    hi = c.deepPriceClampMax;
+  } else {
+    if (e.targetStock <= 0) return base * c.priceClampMin;
+    r0 = (e.stock + fromT) / e.targetStock;
+    r1 = r0 + qty / e.targetStock;
+    lo = c.priceClampMin;
+    hi = c.priceClampMax;
   }
-  return sum / SLIPPAGE_SAMPLES;
+  const k = c.elasticity;
+  const mean =
+    (clampedPowerIntegral(r1, k, lo, hi) - clampedPowerIntegral(r0, k, lo, hi)) / (r1 - r0);
+  return base * mean;
 }
 
 /**

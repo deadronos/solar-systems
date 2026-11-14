@@ -21,8 +21,9 @@ Commands, toolchain, branches, releases. Read this before running or shipping an
 
 ```bash
 pnpm dev            # Vite dev server (the desktop preview uses port 5179, see .claude/launch.json)
-pnpm check          # typecheck + lint + format:check + test — must pass before "done"
-pnpm test           # vitest run (~10 s; the 20-year soak is the slow one)
+pnpm check          # typecheck + lint + format:check + test + test:perf — must pass before "done"
+pnpm test           # vitest run, all but the perf guard (~50 s; the 20-year soaks are slow)
+pnpm test:perf      # the ≥ 1,000 ticks/s guard, alone
 pnpm vitest run src/sim/logistics/economy   # one folder or file
 pnpm format         # apply oxfmt (run before committing; check fails on unformatted files)
 pnpm lint:fix       # oxlint autofixes

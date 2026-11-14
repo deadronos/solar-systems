@@ -13,7 +13,8 @@ How tests are organised and which patterns to reuse. Read this before adding or 
   `core/core.test.ts`, `economy/contracts.test.ts`…). React rendering can be tested with
   `renderToString` (`ui/logistics/inspectors/inspectors.test.tsx`). The provider lifecycle
   test uses `happy-dom` to mount and unmount a React root.
-- `pnpm test` runs everything in about 25 s, most of it the five 20-year soaks. A three.js
+- `pnpm test` runs everything except the performance guard in about 50 s, most of it the
+  five 20-year soaks. `pnpm test:perf` runs the guard alone; `pnpm check` runs it last. A three.js
   CJS deprecation warning in the output is expected noise.
 - Slow tests (multi-year runs) declare an explicit timeout: `it('…', { timeout: 180_000 }, …)`.
 
@@ -48,7 +49,7 @@ How tests are organised and which patterns to reuse. Read this before adding or 
 | `soak.test.ts` → determinism      | Two runs from one seed give an identical `events.hash()`.                                                                                                                                                                                                                              |
 | `soak.test.ts` → 20-year soak     | Finite non-negative stock, prices within clamps, population ≥ 0, treasury ≥ 0, `committed` equals what live contracts owe, survival shortages ≤ 1 year, ≥ 3 active companies, money conserved against the ledger, colony money > 40% of start and ≥ 20 buy orders in the last 2 years. |
 | `robustness.*.test.ts`            | The same invariants as the 20-year soak on four perturbed scenarios (`SOAK_VARIANTS`: later start, richer companies, thinner stocks, poorer colonies), split across two files so they run in parallel.                                                                                 |
-| `soak.test.ts` → performance      | ≥ 1,000 economy ticks per second of the test thread's CPU time (`process.threadCpuUsage`), so parallel soaks on CI can't skew it.                                                                                                                                                      |
+| `perf.test.ts`                    | ≥ 1,000 economy ticks per second: best of three one-year runs, in the test thread's CPU time, run on its own (`pnpm test:perf`) because CI's shared runner swung 2× with the soaks in parallel.                                                                                        |
 | `sync/sync.test.ts`               | The worker backend (via an in-process fake `EconomyPort` with `structuredClone`) mirrors the inline economy tick for tick; fallback and failure paths.                                                                                                                                 |
 | `sim.test.ts`                     | Kepler solver, Julian dates, ephemeris vs JPL Horizons at J2000, periodicity.                                                                                                                                                                                                          |
 | `navigation/lambert.test.ts`      | Lambert solver against a reference implementation (`lambertReference.ts`).                                                                                                                                                                                                             |
