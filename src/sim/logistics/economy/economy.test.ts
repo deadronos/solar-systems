@@ -10,7 +10,10 @@ import {
   maxBuyQty,
   priceBand,
   priceFor,
+  quoteBuy,
+  quoteSell,
   shouldAnnouncePrice,
+  updateMarket,
 } from './markets.ts';
 import { runProduction } from './production.ts';
 import type { ScenarioConfig, SettlementDef } from './types.ts';
@@ -80,6 +83,51 @@ describe('prices', () => {
     expect(bidPrice(e, C.markets, 0, 5)).toBe(0);
     expect(maxBuyQty(e, C.markets)).toBe(20);
   });
+
+  describe('slippage and inertia (#15)', () => {
+    /** A colony with food at target stock and its posted price at base. */
+    const atTarget = () => {
+      const w = createWorld(scenario(colony()), eph);
+      const s = w.settlements.get('test-colony')!;
+      const e = s.market.food;
+      e.stock = e.targetStock;
+      e.price = 1_500;
+      return { w, s, e };
+    };
+    const half = C.markets.spread / 2;
+
+    it('prices a large order along the curve, not at the first tonne', () => {
+      const { w, s, e } = atTarget();
+      expect(quoteSell(w, s, 'food', 1, Infinity)).toBeCloseTo(1_500 * (1 - half), -1);
+      const big = quoteSell(w, s, 'food', e.targetStock, Infinity);
+      // Doubling stock halves the price; the order averages ~ln 2 of the way down.
+      expect(big).toBeLessThan(1_500 * 0.75);
+      expect(big).toBeGreaterThan(1_500 * 0.6);
+      expect(quoteBuy(w, s, 'food', e.targetStock / 2)).toBeGreaterThan(1_500 * 1.3);
+    });
+
+    it('trades at the worse of the posted price and the curve', () => {
+      const { w, s } = atTarget();
+      // Posted price lags high after a glut: sellers get the curve, buyers pay the posted.
+      s.market.food.price = 3_000;
+      expect(quoteSell(w, s, 'food', 1, Infinity)).toBeCloseTo(1_500 * (1 - half), -1);
+      expect(quoteBuy(w, s, 'food', 1)).toBeCloseTo(3_000 * (1 + half), -1);
+    });
+
+    it('moves the posted price toward the curve over days, not in one tick', () => {
+      const { w, s, e } = atTarget();
+      e.stock = e.targetStock / 4; // curve: 4× base
+      updateMarket(s, w, 0.25);
+      expect(e.price).toBeGreaterThan(1_500);
+      expect(e.price).toBeLessThan(1_500 * 1.2);
+      // Hold stock at a quarter of target (with no flows, target shrinks as use decays).
+      for (let i = 0; i < 400; i++) {
+        e.stock = e.targetStock / 4;
+        updateMarket(s, w, 0.25);
+      }
+      expect(e.price).toBeGreaterThan(1_500 * 3.5);
+    });
+  });
 });
 
 describe('production', () => {
@@ -111,6 +159,7 @@ describe('production', () => {
     );
     const s = w.settlements.get('test-colony')!;
     s.flows.demand = {};
+    s.market.water.productionPerDay = 1e4;
     s.market.water.price = 800;
     s.market.fuel.price = 400;
     const fuel0 = s.market.fuel.stock;
@@ -122,6 +171,33 @@ describe('production', () => {
     s.market.fuel.price = 1_000;
     runProduction(s, w, 1);
     expect(s.market.fuel.stock).toBeCloseTo(fuel0 + 100, 5);
+  });
+
+  it('runs industry on the local surplus of survival goods, never on imports', () => {
+    const w = createWorld(
+      scenario(
+        colony({
+          population: 10_000,
+          facilities: [{ recipeId: 'water_fuel', maxRatePerDay: 100 }],
+          initialStock: { water: 100_000 },
+        }),
+      ),
+      eph,
+    );
+    const s = w.settlements.get('test-colony')!;
+    s.market.water.price = 100;
+    s.market.fuel.price = 1_000;
+    // The people need 40 t/day of water; 62 t/day are made here, so 22 t/day are spare.
+    const need = 10_000 * (C.population.needsPerCapitaPerDay.survival.water ?? 0);
+    s.market.water.productionPerDay = need + 22;
+    const fuel0 = s.market.fuel.stock;
+    runProduction(s, w, 1);
+    expect(s.market.fuel.stock - fuel0).toBeCloseTo(20, 5);
+    // Nothing spare: the plant idles, however much water is in stock.
+    s.market.water.productionPerDay = need;
+    const fuel1 = s.market.fuel.stock;
+    runProduction(s, w, 1);
+    expect(s.market.fuel.stock).toBe(fuel1);
   });
 });
 

@@ -23,6 +23,8 @@ export const ECONOMY_CONSTANTS: EconomyConstants = {
     deepPriceClampMax: 2,
     /** Earth charter bounty to the origin colony, as a share of base price per tonne sold to Earth. */
     earthExportBounty: 0.2,
+    /** Time constant (days) over which a posted price follows the stock curve. */
+    priceInertiaDays: 10,
   },
   population: {
     /** Smoothing window for need satisfaction and market flow estimates. */

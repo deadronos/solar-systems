@@ -2,7 +2,7 @@ import { TICK_DAYS } from '../core/time.ts';
 import { sortedIds } from '../core/sortedIds.ts';
 import type { LogisticsWorld } from '../core/world.ts';
 import { penaltyFor } from '../core/commands.ts';
-import { askPrice, bidPrice, recordDeepTrade, spareStock } from './markets.ts';
+import { askPrice, quoteBuy, quoteSell, recordDeepTrade, spareStock } from './markets.ts';
 import { companyPays, creditSettlement } from './money.ts';
 import { availableFunds, commit, outstanding, release } from './treasury.ts';
 import { GOOD_IDS, type Contract, type GoodId, type Settlement } from './types.ts';
@@ -75,10 +75,9 @@ function bestLocalSource(world: LogisticsWorld, buyer: Settlement, good: GoodId,
   for (const id of sortedIds(world.settlements)) {
     const s = world.settlements.get(id)!;
     if (s.id === buyer.id || s.site.bodyId !== buyer.site.bodyId) continue;
-    const e = s.market[good];
     const spare = spareStock(s, good, world.constants.contracts.sourceReserveFraction);
     if (spare < qty) continue;
-    const price = askPrice(e, world.constants.markets);
+    const price = quoteBuy(world, s, good, qty);
     if (!best || price < best.price) best = { s, price };
   }
   return best;
@@ -107,7 +106,7 @@ function bestSource(
     if (spare < qty || (!s.isDeepMarket && e.productionPerDay <= 0)) continue;
     const trip = tripCostAndDays(world, s, buyer, qty);
     if (!trip) continue;
-    const price = askPrice(e, world.constants.markets);
+    const price = quoteBuy(world, s, good, qty);
     const landed = price * qty + trip.cost * world.constants.contracts.freightFeeMarkup;
     if (!best || landed < best.landed) best = { s, price, trip, landed };
   }
@@ -136,6 +135,69 @@ export function lifeSupportShare(world: LogisticsWorld, s: Settlement, good: Goo
   return Math.min(1, (s.population * perCapita) / consumption);
 }
 
+/** Money a settlement may commit to one more buy order for a good. */
+function orderBudget(world: LogisticsWorld, buyer: Settlement, good: GoodId): number {
+  const c = world.constants.contracts;
+  // Only money not already promised to other orders may be committed.
+  const funds = availableFunds(buyer);
+  const guarded =
+    Math.max(0, funds - survivalReserve(world, buyer)) * c.nonSurvivalTreasuryFraction;
+  // Only the population's own use of a survival good gets the life-support budget. Industry
+  // using it as an input (water for electrolysis) must not spend the reserve kept for food.
+  const survival = world.goods.get(good)?.category === 'survival';
+  const lifeShare = survival ? lifeSupportShare(world, buyer, good) : 0;
+  return lifeShare * funds * c.maxTreasuryFraction + (1 - lifeShare) * guarded;
+}
+
+/** Unit reward a delivery order offers: the local price plus the contract premium. */
+function deliveryUnitReward(world: LogisticsWorld, buyer: Settlement, good: GoodId): number {
+  const c = world.constants.contracts;
+  const premium = c.contractPremium * (buyer.inShortage ? c.shortagePremiumFactor : 1);
+  return buyer.market[good].price * (1 + premium);
+}
+
+/** Delivery reward for `qty`: the goods at local value plus the expected cost of hauling them. */
+function deliveryReward(
+  world: LogisticsWorld,
+  buyer: Settlement,
+  good: GoodId,
+  qty: number,
+  trip: { cost: number } | null,
+): number {
+  const escalation = buyer.orderEscalation[good] ?? 1;
+  return (
+    deliveryUnitReward(world, buyer, good) * qty +
+    (trip?.cost ?? 0) * world.constants.contracts.freightFeeMarkup * escalation
+  );
+}
+
+/** Raise an open order's reward only when the fresh price beats it by this factor. */
+const REPRICE_ABOVE = 1.1;
+
+/**
+ * An open survival order nobody has taken follows its settlement's price up: the goods part
+ * of the reward is raised to the current local price plus premium, if the settlement can
+ * afford it. Rewards used to be fixed when posted, so an order placed in a glut sat
+ * unaccepted for years while its colony ran out of food (#15). The haul part is left alone,
+ * or freight escalation would compound across every open order.
+ */
+function repriceOpenOrders(world: LogisticsWorld): void {
+  for (const id of sortedIds(world.contracts)) {
+    const c = world.contracts.get(id)!;
+    if (c.kind !== 'delivery' || c.status !== 'open' || c.unitReward === undefined) continue;
+    if (world.goods.get(c.good)?.category !== 'survival') continue;
+    const buyer = world.settlements.get(c.settlementId);
+    if (!buyer || buyer.isDeepMarket) continue;
+    const unit = deliveryUnitReward(world, buyer, c.good);
+    if (unit <= c.unitReward * REPRICE_ABOVE) continue;
+    const raise = Math.min((unit - c.unitReward) * c.qty, orderBudget(world, buyer, c.good));
+    if (!(raise > 0)) continue;
+    c.reward += raise;
+    c.unitReward += raise / c.qty;
+    commit(buyer, raise);
+  }
+}
+
 function post(
   world: LogisticsWorld,
   buyer: Settlement,
@@ -150,14 +212,7 @@ function post(
   if (e.productionPerDay >= e.consumptionPerDay) return;
   const survival = world.goods.get(good)?.category === 'survival';
   if (!survival && buyer.inShortage) return;
-  // Only money not already promised to other orders may be committed.
-  const funds = availableFunds(buyer);
-  const guarded =
-    Math.max(0, funds - survivalReserve(world, buyer)) * c.nonSurvivalTreasuryFraction;
-  // Only the population's own use of a survival good gets the life-support budget. Industry
-  // using it as an input (water for electrolysis) must not spend the reserve kept for food.
-  const lifeShare = survival ? lifeSupportShare(world, buyer, good) : 0;
-  const budget = lifeShare * funds * c.maxTreasuryFraction + (1 - lifeShare) * guarded;
+  const budget = orderBudget(world, buyer, good);
 
   // Local shuttle: neighbours on the same body (e.g. Gateway ↔ Earth Exchange) are one
   // economy — top up straight from them whenever stock in hand runs low. No ship needed.
@@ -165,10 +220,11 @@ function post(
     const want = Math.ceil(e.targetStock - e.stock);
     const local = bestLocalSource(world, buyer, good, want);
     if (local) {
+      // The quote for `want` bounds the price per tonne of any smaller order.
       const qty = Math.min(want, Math.floor((budget - 2 * dockingFee) / local.price));
       if (qty >= 1) {
         // The neighbour is paid for the goods and its port fees.
-        const cost = local.price * qty + 2 * dockingFee;
+        const cost = quoteBuy(world, local.s, good, qty) * qty + 2 * dockingFee;
         creditSettlement(world, buyer, -cost);
         creditSettlement(world, local.s, cost);
         e.stock += qty;
@@ -194,8 +250,7 @@ function post(
   const projected = e.stock + (inbound.get(orderKey(buyer.id, good)) ?? 0);
   if (projected >= c.postThreshold * desired) return;
   let qty = Math.min(c.maxContractQtyT, Math.ceil(desired - projected));
-  const premium = c.contractPremium * (buyer.inShortage ? c.shortagePremiumFactor : 1);
-  const unitReward = e.price * (1 + premium);
+  const unitReward = deliveryUnitReward(world, buyer, good);
   const escalation = buyer.orderEscalation[good] ?? 1;
   qty = Math.min(qty, Math.floor(budget / unitReward));
   if (qty < 1) return;
@@ -228,7 +283,7 @@ function post(
   // Delivery: the carrier sources the cargo wherever it likes. The reward covers the
   // goods at local value plus the premium and the expected cost of hauling them.
   const trip = source?.trip ?? null;
-  const reward = unitReward * qty + (trip?.cost ?? 0) * c.freightFeeMarkup * escalation;
+  const reward = deliveryReward(world, buyer, good, qty, trip);
   if (reward > budget) return;
   addContract(world, {
     escrowCost: 0,
@@ -238,6 +293,7 @@ function post(
     good,
     qty,
     reward,
+    unitReward,
     deadlineDays: Math.max(c.minDeadlineDays, c.deadlineTripMultiple * (trip?.days ?? 0)),
   });
 }
@@ -265,7 +321,7 @@ function shuttleSurplus(world: LogisticsWorld, seller: Settlement, good: GoodId)
   }
   if (!buyer) return false;
   const proceeds =
-    bidPrice(buyer.market[good], world.constants.markets, Number.POSITIVE_INFINITY, qty) * qty -
+    quoteSell(world, buyer, good, qty, Number.POSITIVE_INFINITY) * qty -
     2 * world.constants.ships.dockingFee;
   if (!(proceeds > 0)) return false;
   creditSettlement(world, buyer, -proceeds);
@@ -321,9 +377,10 @@ function addContract(
   p: Pick<
     Contract,
     'kind' | 'settlementId' | 'pickupSettlementId' | 'good' | 'qty' | 'reward' | 'escrowCost'
-  > & {
-    deadlineDays: number;
-  },
+  > &
+    Partial<Pick<Contract, 'unitReward'>> & {
+      deadlineDays: number;
+    },
 ): void {
   const contract: Contract = {
     id: world.nextId('contract'),
@@ -340,6 +397,7 @@ function addContract(
     shipId: null,
     escrowCost: p.escrowCost,
     late: false,
+    ...(p.unitReward === undefined ? {} : { unitReward: p.unitReward }),
   };
   world.contracts.set(contract.id, contract);
   const buyer = world.settlements.get(contract.settlementId);
@@ -433,6 +491,7 @@ export function generateContracts(world: LogisticsWorld): void {
   }
   // Each post() adds contracts only for its own (settlement, good), so totals taken once here
   // stay exact for every pair visited after it.
+  repriceOpenOrders(world);
   const { inbound, selling } = liveOrders(world);
   for (const id of sortedIds(world.settlements)) {
     const s = world.settlements.get(id)!;

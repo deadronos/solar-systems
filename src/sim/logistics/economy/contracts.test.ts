@@ -50,6 +50,21 @@ const open = (w: ReturnType<typeof createWorld>, good: string) =>
   [...w.contracts.values()].filter((c) => c.good === good && c.status === 'open');
 
 describe('contracts', () => {
+  it('raises an untaken survival order as the local price climbs, within its budget', () => {
+    const w = starve(createWorld(scenario([colony()]), eph));
+    w.advanceTo(START_JD + 1);
+    const order = open(w, 'food')[0]!;
+    const { reward, unitReward } = order;
+    expect(unitReward).toBeGreaterThan(0);
+    // No carriers: the order stays open while the empty store drives the price up.
+    w.advanceTo(START_JD + 20);
+    expect(order.status).toBe('open');
+    expect(order.reward).toBeGreaterThan(reward * 1.1);
+    expect(order.unitReward).toBeGreaterThan(unitReward!);
+    expect(order.reward - reward).toBeCloseTo((order.unitReward! - unitReward!) * order.qty, 3);
+    expect(w.settlements.get('col')!.committed).toBeCloseTo(promised(w), 3);
+  });
+
   it('a shortage posts one order per good per day until the shortfall is covered', () => {
     const w = starve(createWorld(scenario([colony()]), eph));
     w.advanceTo(START_JD + 1);
