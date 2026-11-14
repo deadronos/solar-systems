@@ -7,6 +7,7 @@ export * from './core/world.ts';
 export * from './economy/types.ts';
 export type * from './navigation/plan.ts';
 export { DEFAULT_SCENARIO } from './data/scenario.ts';
+export { withFleetSize } from './data/benchmark.ts';
 export { evaluatePlan } from './navigation/plan.ts';
 export { NavContext, estimateTrip, planTrip, type TripEstimate } from './navigation/planner.ts';
 export { createWorld, restoreWorld, snapshotWorld, type WorldSnapshot } from './createWorld.ts';

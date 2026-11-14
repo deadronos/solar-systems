@@ -24,12 +24,15 @@ export interface SelectionState {
   follow: boolean;
   companyFilter: string | null;
   overlays: Overlays;
+  /** Ship under the pointer in the scene (shows its label), set on pointer moves only. */
+  hoveredShip: string | null;
   select(ref: EntityRef | null): void;
   back(): void;
   forward(): void;
   setFollow(follow: boolean): void;
   setCompanyFilter(id: string | null): void;
   toggleOverlay(key: keyof Overlays): void;
+  setHoveredShip(id: string | null): void;
 }
 
 const same = (a: EntityRef | null, b: EntityRef | null) =>
@@ -44,6 +47,7 @@ export const useSelectionStore = create<SelectionState>()((set) => ({
   follow: false,
   companyFilter: null,
   overlays: { tradeFlows: false, allTrajectories: false, shortages: false, ships: true },
+  hoveredShip: null,
   select: (ref) =>
     set((s) => {
       if (same(s.selected, ref)) return s;
@@ -73,4 +77,6 @@ export const useSelectionStore = create<SelectionState>()((set) => ({
   setFollow: (follow) => set({ follow }),
   setCompanyFilter: (companyFilter) => set({ companyFilter }),
   toggleOverlay: (key) => set((s) => ({ overlays: { ...s.overlays, [key]: !s.overlays[key] } })),
+  setHoveredShip: (hoveredShip) =>
+    set((s) => (s.hoveredShip === hoveredShip ? s : { hoveredShip })),
 }));

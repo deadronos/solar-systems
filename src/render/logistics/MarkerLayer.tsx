@@ -1,15 +1,12 @@
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3, type PerspectiveCamera } from 'three';
-import { vec3 } from '../../sim/index.ts';
 import { useSelectionStore } from '../../state/selectionStore.ts';
 import { pixelsPerUnit, relativeToScene } from '../coords.ts';
 import { placeLabel } from '../labelPlacement.ts';
 import { useRenderFrame, useSimulation } from '../SimulationContext.tsx';
 import { PRIORITY_SCENE } from '../scene/SimDriver.tsx';
-import { shipPosition } from './focus.ts';
-import { settlementLabelKey, shipLabelKey } from './LogisticsOverlay.tsx';
+import { settlementLabelKey } from './LogisticsOverlay.tsx';
 
-const helio = vec3();
 const scene = new Vector3();
 const parent = new Vector3();
 /** Moon settlements closer than this (px) to their planet stack under the planet. */
@@ -19,7 +16,7 @@ const STACK_PX = 15;
 /** Settlement markers sit below the body's own label. */
 const SITE_OFFSET_PX = 14;
 
-/** Positions the DOM markers for settlements and ships every frame. */
+/** Positions the settlement markers every frame (ships: `ShipLayer`). */
 export function MarkerLayer() {
   const sim = useSimulation();
   const frame = useRenderFrame();
@@ -29,8 +26,7 @@ export function MarkerLayer() {
   useFrame(() => {
     const world = sim.logistics;
     if (!world) return;
-    const { companyFilter, overlays, selected } = useSelectionStore.getState();
-    const shortages = overlays.shortages;
+    const shortages = useSelectionStore.getState().overlays.shortages;
 
     // Settlements: stacked under their body.
     const perBody = new Map<string, number>();
@@ -65,33 +61,6 @@ export function MarkerLayer() {
               ? 'warn'
               : 'ok';
       if (el.dataset.health !== state) el.dataset.health = state;
-    }
-
-    // Ships: docked ships fan out to the right of their site.
-    const docked = new Map<string, number>();
-    const jd = sim.clock.jd;
-    for (const ship of world.ships.values()) {
-      const el = frame.labels.get(shipLabelKey(ship.id));
-      if (!el) continue;
-      const visible =
-        overlays.ships &&
-        ship.state !== 'building' &&
-        (!companyFilter ||
-          ship.companyId === companyFilter ||
-          (selected?.kind === 'ship' && selected.id === ship.id));
-      if (!visible || !shipPosition(sim, ship, jd, helio)) {
-        placeLabel(el, scene, camera, size, false);
-        continue;
-      }
-      let dx = 0;
-      if (ship.state === 'docked' || ship.state === 'waiting') {
-        const key = ship.siteId ?? '';
-        const n = docked.get(key) ?? 0;
-        docked.set(key, n + 1);
-        dx = -14 - n * 9;
-      }
-      relativeToScene(helio, frame.origin, scene);
-      placeLabel(el, scene, camera, size, true, dx, 0);
     }
   }, PRIORITY_SCENE);
 

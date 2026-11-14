@@ -8,6 +8,7 @@ import { CameraRig } from './CameraRig.tsx';
 import { OrbitPath } from './OrbitPath.tsx';
 import { SimDriver } from './SimDriver.tsx';
 import { MarkerLayer } from '../logistics/MarkerLayer.tsx';
+import { ShipLayer } from '../logistics/ShipLayer.tsx';
 import { TradeFlowLayer } from '../logistics/TradeFlowLayer.tsx';
 import { TrajectoryLayer } from '../logistics/TrajectoryLayer.tsx';
 import { Starfield } from './Starfield.tsx';
@@ -35,6 +36,7 @@ function SceneContents() {
       {sim.logistics && (
         <>
           <MarkerLayer />
+          <ShipLayer />
           <TrajectoryLayer />
           <TradeFlowLayer />
         </>
