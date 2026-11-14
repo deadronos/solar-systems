@@ -158,11 +158,25 @@ export class NavContext {
    * (`surfaceDv`).
    */
   wellDv(site: Settlement, vInf: number, lowThrust = false): number {
+    return wellBurn(this.wellLevels(site), vInf, lowThrust);
+  }
+
+  /**
+   * The circular orbits a burn from `site` passes through, outermost first: a moon's orbit
+   * around its planet, then the parking orbit. Lets launch-window scoring evaluate `wellDv`
+   * per cell without ephemeris lookups.
+   */
+  wellLevels(site: Settlement): WellLevel[] {
+    const levels: WellLevel[] = [];
     const body = site.site.bodyId;
-    const v = this.excessAt(body, vInf, lowThrust);
-    const mu = this.gm(body);
-    const r = this.parkingRadius(site);
-    return lowThrust ? spiralDv(mu, r, v) : oberthDv(mu, r, v);
+    for (let id = body; id !== this.helioBody(id);) {
+      const parent = this.eph.get(id).parentId;
+      if (parent === null) break;
+      levels.unshift({ mu: this.gm(parent), r: this.eph.semiMajorAxisKm(id, J2000) });
+      id = parent;
+    }
+    levels.push({ mu: this.gm(body), r: this.parkingRadius(site) });
+    return levels;
   }
 
   /** Whether arrivals at this body can brake in its atmosphere (#20). */
@@ -429,9 +443,11 @@ function solveTrip(
     } else {
       const t0 = earliestJd + ascentDays;
       // Patched conics: escape from the departure parking orbit, capture into the arrival one.
-      const lt = cls.lowThrust;
+      const lt = cls.lowThrust ?? false;
+      const depWell = ctx.wellLevels(from);
+      const arrWell = ctx.wellLevels(to);
       const burn = (c: Cell) =>
-        ctx.wellDv(from, c.dvDep, lt) + (aero ? 0 : ctx.wellDv(to, c.dvArr, lt));
+        wellBurn(depWell, c.dvDep, lt) + (aero ? 0 : wellBurn(arrWell, c.dvArr, lt));
       // Immediate departures first, then later launch windows (earlier cells win ties).
       const now = ctx.sweepFrom(fromBody, toBody, t0);
       const later = ctx.porkchop.cells(fromBody, toBody, t0);
@@ -529,6 +545,19 @@ function solveTrip(
     }
   }
   return { departJd, arriveJd, deltaVKmS: transferDv + ascentDv + descentDv, legs };
+}
+
+/** A circular orbit of radius `r` (km) around a body of gravity `mu` (km³/s²). */
+export interface WellLevel {
+  mu: number;
+  r: number;
+}
+
+/** `NavContext.wellDv` over precomputed levels (outermost first). */
+function wellBurn(levels: readonly WellLevel[], vInf: number, lowThrust: boolean): number {
+  let v = vInf;
+  for (const { mu, r } of levels) v = lowThrust ? spiralDv(mu, r, v) : oberthDv(mu, r, v);
+  return v;
 }
 
 /**
