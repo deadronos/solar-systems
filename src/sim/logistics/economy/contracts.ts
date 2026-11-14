@@ -11,6 +11,11 @@ import { GOOD_IDS, type Contract, type GoodId, type Settlement } from './types.t
 const GENERATION_INTERVAL_DAYS = 1;
 /** Finished contracts are forgotten after this many days. */
 const PRUNE_AFTER_DAYS = 90;
+/**
+ * Hauls are priced from orbital geometry at the start of the current week of this many days.
+ * Fees are estimates anyway, and re-solving every pair daily dominated the tick cost.
+ */
+const HAUL_PRICING_BUCKET_DAYS = 7;
 
 /** Tonnes already contracted (open, accepted or loaded) to a settlement for a good. */
 export function inboundQty(world: LogisticsWorld, settlementId: string, good: GoodId): number {
@@ -45,10 +50,14 @@ function tripCostAndDays(world: LogisticsWorld, from: Settlement, to: Settlement
     .filter((c) => c.tier <= 2 && c.cargoT >= qty)
     .toSorted((a, b) => a.upkeepPerDay - b.upkeepPerDay || a.id.localeCompare(b.id));
   const fuelPrice = world.goods.get('fuel')?.basePrice ?? 0;
+  const start = world.config.startJd;
+  const pricedJd =
+    start +
+    Math.floor((world.jd - start) / HAUL_PRICING_BUCKET_DAYS + 1e-9) * HAUL_PRICING_BUCKET_DAYS;
   for (const cls of bulk) {
-    const est = world.nav.estimateCached(cls, from, to, world.jd);
+    const est = world.nav.estimateCached(cls, from, to, pricedJd);
     if (!est) continue;
-    const days = est.arriveJd - world.jd;
+    const days = est.arriveJd - pricedJd;
     // A carrier makes the whole trip regardless of load size, so price the full trip.
     const cost =
       est.fuelT * fuelPrice +
