@@ -23,7 +23,11 @@ export interface TripEstimate {
 interface Cell {
   departJd: number;
   tofDays: number;
-  /** Departure and arrival v∞ burns (km/s); `dv` is their sum. */
+  /**
+   * Hyperbolic excess speeds (km/s) relative to the departure and arrival bodies' Sun-orbiting
+   * primaries; `dv` is their sum. The planner turns them into burns from each settlement's
+   * parking orbit (`NavContext.wellDv`, #19).
+   */
   dvDep: number;
   dvArr: number;
   dv: number;
@@ -120,6 +124,59 @@ export class NavContext {
     const gm = this.gm(site.site.bodyId);
     const r = this.eph.get(site.site.bodyId).radiusKm;
     return gm > 0 ? this.balance.surfaceDvFactor * Math.sqrt(gm / r) : 0;
+  }
+
+  /**
+   * Radius (km, from the body's centre) of the orbit ships park in at a settlement: the
+   * station's own `parkingOrbitKm`, else low orbit (`nav.lowOrbitFactor` × body radius).
+   * Surface sites always park in low orbit, where their ascent and descent start.
+   */
+  parkingRadius(site: Settlement): number {
+    const low = this.eph.get(site.site.bodyId).radiusKm * this.balance.lowOrbitFactor;
+    return site.site.kind === 'orbit' ? (site.parkingOrbitKm ?? low) : low;
+  }
+
+  /**
+   * Hyperbolic excess (km/s) relative to `bodyId` that gives `vInf` relative to its Sun-orbiting
+   * primary: for a moon, the burn happens deep in the planet's well at the moon's orbit, where
+   * the moon's own orbital speed helps (Oberth, #19). The primary itself returns `vInf`.
+   * A low-thrust ship spirals out instead, paying the circular speed at the moon's orbit.
+   */
+  excessAt(bodyId: string, vInf: number, lowThrust = false): number {
+    const def = this.eph.get(bodyId);
+    if (bodyId === this.helioBody(bodyId) || def.parentId === null) return vInf;
+    const vParent = this.excessAt(def.parentId, vInf, lowThrust);
+    const mu = this.gm(def.parentId);
+    const a = this.eph.semiMajorAxisKm(bodyId, J2000);
+    return lowThrust ? spiralDv(mu, a, vParent) : oberthDv(mu, a, vParent);
+  }
+
+  /**
+   * Burn (km/s) between a settlement's parking orbit and a hyperbolic excess `vInf` relative to
+   * its body's Sun-orbiting primary: the patched-conic departure or capture (#19), or an escape
+   * spiral for a low-thrust ship. Ascent from or descent to a surface comes on top
+   * (`surfaceDv`).
+   */
+  wellDv(site: Settlement, vInf: number, lowThrust = false): number {
+    return wellBurn(this.wellLevels(site), vInf, lowThrust);
+  }
+
+  /**
+   * The circular orbits a burn from `site` passes through, outermost first: a moon's orbit
+   * around its planet, then the parking orbit. Lets launch-window scoring evaluate `wellDv`
+   * per cell without ephemeris lookups.
+   */
+  wellLevels(site: Settlement): WellLevel[] {
+    const levels: WellLevel[] = [];
+    const body = site.site.bodyId;
+    for (let id = body; id !== this.helioBody(id);) {
+      const parent = this.eph.get(id).parentId;
+      if (parent === null) break;
+      levels.unshift({ mu: this.gm(parent), r: this.eph.semiMajorAxisKm(id, J2000) });
+      id = parent;
+    }
+    levels.push({ mu: this.gm(body), r: this.parkingRadius(site) });
+    return levels;
   }
 
   /** Whether arrivals at this body can brake in its atmosphere (#20). */
@@ -327,9 +384,17 @@ function solveTrip(
   const legs: Leg[] = [];
   const maxDv = cls.tier <= 4 ? maxDeltaV(cls, cargoT) : Number.POSITIVE_INFINITY;
 
-  // Same body: a docking hop between stations / surface and orbit.
+  // Same body: a docking hop between stations / surface and orbit, plus a Hohmann transfer
+  // when the two park at different radii.
   if (fromBody === toBody) {
-    const dv = Math.max(ctx.surfaceDv(from), ctx.surfaceDv(to));
+    const r1 = ctx.parkingRadius(from);
+    const r2 = ctx.parkingRadius(to);
+    const shift =
+      r1 === r2 || !(ctx.gm(fromBody) > 0)
+        ? null
+        : hohmann(ctx.gm(fromBody), r1, r2, cls.lowThrust);
+    const dv =
+      Math.max(ctx.surfaceDv(from), ctx.surfaceDv(to)) + (shift ? shift.dvDep + shift.dvArr : 0);
     if (dv > maxDv) return null;
     if (withLegs)
       legs.push(hold(fromBody, earliestJd, earliestJd + ctx.balance.sameBodyDays, 'docking'));
@@ -359,7 +424,16 @@ function solveTrip(
     const budget = maxDv - ascentDv - descentDv;
     if (budget <= 0) return null;
     if (local) {
-      const r = localTransfer(ctx, fromBody, toBody, from, to, earliestJd + ascentDays, withLegs);
+      const r = localTransfer(
+        ctx,
+        cls,
+        fromBody,
+        toBody,
+        from,
+        to,
+        earliestJd + ascentDays,
+        withLegs,
+      );
       const dv = r ? r.dvDep + (aero ? 0 : r.dvArr) : 0;
       if (!r || dv > budget) return null;
       transferStart = earliestJd + ascentDays;
@@ -368,7 +442,12 @@ function solveTrip(
       if (r.leg) transferLegs.push(r.leg);
     } else {
       const t0 = earliestJd + ascentDays;
-      const burn = (c: Cell) => c.dvDep + (aero ? 0 : c.dvArr);
+      // Patched conics: escape from the departure parking orbit, capture into the arrival one.
+      const lt = cls.lowThrust ?? false;
+      const depWell = ctx.wellLevels(from);
+      const arrWell = ctx.wellLevels(to);
+      const burn = (c: Cell) =>
+        wellBurn(depWell, c.dvDep, lt) + (aero ? 0 : wellBurn(arrWell, c.dvArr, lt));
       // Immediate departures first, then later launch windows (earlier cells win ties).
       const now = ctx.sweepFrom(fromBody, toBody, t0);
       const later = ctx.porkchop.cells(fromBody, toBody, t0);
@@ -468,15 +547,68 @@ function solveTrip(
   return { departJd, arriveJd, deltaVKmS: transferDv + ascentDv + descentDv, legs };
 }
 
-/** Orbital radius of a body around its helio parent planet; planets themselves → low orbit. */
-function localRadius(ctx: NavContext, bodyId: string, helio: string): number {
-  if (bodyId === helio) return ctx.eph.get(bodyId).radiusKm * ctx.balance.lowOrbitFactor;
+/** A circular orbit of radius `r` (km) around a body of gravity `mu` (km³/s²). */
+export interface WellLevel {
+  mu: number;
+  r: number;
+}
+
+/** `NavContext.wellDv` over precomputed levels (outermost first). */
+function wellBurn(levels: readonly WellLevel[], vInf: number, lowThrust: boolean): number {
+  let v = vInf;
+  for (const { mu, r } of levels) v = lowThrust ? spiralDv(mu, r, v) : oberthDv(mu, r, v);
+  return v;
+}
+
+/**
+ * Burn (km/s) from a circular orbit of radius `r` around a body of gravity `mu` to a hyperbolic
+ * excess `vInf` (or back): √(v∞² + 2μ/r) − √(μ/r). Without gravity it is `vInf` itself.
+ */
+export function oberthDv(mu: number, r: number, vInf: number): number {
+  if (!(mu > 0) || !(r > 0)) return vInf;
+  const vc2 = mu / r;
+  return Math.sqrt(vInf * vInf + 2 * vc2) - Math.sqrt(vc2);
+}
+
+/**
+ * Low-thrust escape (or capture) spiral from a circular orbit of radius `r` to a hyperbolic
+ * excess `vInf` (Edelbaum): the circular speed √(μ/r) to escape, then `vInf` on top. No Oberth
+ * help, so deep wells cost a low-thrust ship far more than an impulsive one.
+ */
+export function spiralDv(mu: number, r: number, vInf: number): number {
+  return mu > 0 && r > 0 ? Math.sqrt(mu / r) + vInf : vInf;
+}
+
+/**
+ * Transfer between circular orbits: impulsive Hohmann departure and arrival burns (km/s), or
+ * for a low-thrust ship one Edelbaum spiral of |Δ circular speed|, charged at departure.
+ */
+function hohmann(
+  mu: number,
+  r1: number,
+  r2: number,
+  lowThrust = false,
+): { dvDep: number; dvArr: number } {
+  if (lowThrust) return { dvDep: Math.abs(Math.sqrt(mu / r1) - Math.sqrt(mu / r2)), dvArr: 0 };
+  const dvDep = Math.abs(Math.sqrt(mu / r1) * (Math.sqrt((2 * r2) / (r1 + r2)) - 1));
+  const dvArr = Math.abs(Math.sqrt(mu / r2) * (1 - Math.sqrt((2 * r1) / (r1 + r2))));
+  return { dvDep, dvArr };
+}
+
+/**
+ * Radius around the planet of a settlement in its system: a moon's orbit, or the parking orbit
+ * of a site at the planet itself.
+ */
+function localRadius(ctx: NavContext, site: Settlement, helio: string): number {
+  const bodyId = site.site.bodyId;
+  if (bodyId === helio) return ctx.parkingRadius(site);
   return ctx.eph.semiMajorAxisKm(bodyId, J2000);
 }
 
 /** Planet-centred Hohmann transfer between bodies of one planetary system (tiers 1–2). */
 function localTransfer(
   ctx: NavContext,
+  cls: ShipClass,
   fromBody: string,
   toBody: string,
   from: Settlement,
@@ -487,12 +619,23 @@ function localTransfer(
   const helio = ctx.helioBody(fromBody);
   const mu = ctx.gm(helio);
   if (!(mu > 0)) return null;
-  const r1 = localRadius(ctx, fromBody, helio);
-  const r2 = localRadius(ctx, toBody, helio);
+  const r1 = localRadius(ctx, from, helio);
+  const r2 = localRadius(ctx, to, helio);
   const at = (r1 + r2) / 2;
   const tofDays = (Math.PI * Math.sqrt(at ** 3 / mu)) / DAY;
-  const dvDep = Math.abs(Math.sqrt(mu / r1) * (Math.sqrt((2 * r2) / (r1 + r2)) - 1));
-  const dvArr = Math.abs(Math.sqrt(mu / r2) * (1 - Math.sqrt((2 * r1) / (r1 + r2))));
+  // Hohmann burns are excess speeds relative to a moon, which its own well turns into
+  // departure and capture burns from the parking orbit (#19). At the planet they are the burns.
+  // Low-thrust ships spiral: between the radii, and out of (or into) a moon's well.
+  const lt = cls.lowThrust ?? false;
+  const h = hohmann(mu, r1, r2, lt);
+  const local = (site: Settlement, vInf: number) => {
+    if (site.site.bodyId === helio) return vInf;
+    const m = ctx.gm(site.site.bodyId);
+    const r = ctx.parkingRadius(site);
+    return lt ? spiralDv(m, r, vInf) : oberthDv(m, r, vInf);
+  };
+  const dvDep = local(from, h.dvDep);
+  const dvArr = local(to, h.dvArr);
   const t1 = t0 + tofDays;
   if (!withLegs) return { t1, dvDep, dvArr, leg: null };
 
@@ -517,8 +660,6 @@ function localTransfer(
   let sol = solveLambert(start, end, tofDays * DAY, mu);
   if (!sol) sol = solveLambert(start, end, tofDays * 1.05 * DAY, mu);
   if (!sol) return null;
-  void from;
-  void to;
   return {
     t1,
     dvDep,
