@@ -7,7 +7,14 @@ import { LogisticsWorld } from '../core/world.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { evaluatePlan } from './plan.ts';
 import { AU_KM } from '../../constants.ts';
-import { estimateTrip, NavContext, planTrip, sunWaypoint } from './planner.ts';
+import {
+  estimateTrip,
+  maxDeltaV,
+  NavContext,
+  planTrip,
+  propellantT,
+  sunWaypoint,
+} from './planner.ts';
 
 const eph = new Ephemeris(DEFAULT_CATALOG);
 const world = new LogisticsWorld(DEFAULT_SCENARIO, eph);
@@ -16,7 +23,7 @@ const cls = (id: string) => world.shipClasses.get(id)!;
 const site = (id: string) => world.settlements.get(id)!;
 
 describe('planner', () => {
-  it('tier 1 Earth→Mars takes 150–330 days and may wait for a launch window', () => {
+  it('tier 1 Earth→Mars flies a fuel-efficient arc and may wait for a launch window', () => {
     const est = estimateTrip(
       cls('chem-hauler'),
       site('gateway'),
@@ -26,8 +33,9 @@ describe('planner', () => {
     )!;
     expect(est).not.toBeNull();
     const tof = est.arriveJd - est.departJd;
+    // Propellant grows exponentially with Δv (#20), so the planner trades speed for fuel.
     expect(tof).toBeGreaterThan(150);
-    expect(tof).toBeLessThan(330);
+    expect(tof).toBeLessThan(530);
     expect(est.departJd).toBeGreaterThanOrEqual(START_JD);
     expect(est.deltaVKmS).toBeLessThanOrEqual(12);
   });
@@ -228,8 +236,72 @@ describe('planner', () => {
         expect(distance(p, vec3())).toBeGreaterThan(0.95 * r);
       }
       // Δv exceeds the burn alone (accel × time) by the Earth–Mars velocity difference.
-      const burn = (ship.accelG ?? 0) * 0.009_806_65 * (leg.t1 - leg.t0) * 86_400;
+      const burn = leg.kind === 'torch' ? leg.accelKmS2 * (leg.t1 - leg.t0) * 86_400 : 0;
       expect(plan!.deltaVKmS).toBeGreaterThan(burn + 1);
+    });
+  });
+
+  describe('rocket equation (#20)', () => {
+    it('burns (dry + cargo) × (e^(Δv/vₑ) − 1) and reaches less Δv with a load', () => {
+      const tug = cls('chem-tug');
+      const ve = tug.exhaustVelocityKmS!;
+      expect(propellantT(tug, 0, ve)).toBeCloseTo(tug.dryMassT * (Math.E - 1), 6);
+      expect(propellantT(tug, 400, 3)).toBeGreaterThan(propellantT(tug, 0, 3) * 4);
+      expect(maxDeltaV(tug, 0)).toBeCloseTo(ve * Math.log1p(tug.tankT! / tug.dryMassT), 6);
+      expect(maxDeltaV(tug, tug.cargoT)).toBeLessThan(maxDeltaV(tug, 0) * 0.6);
+    });
+
+    it('a heavy load can put a route out of range, and costs more fuel when it fits', () => {
+      const hauler = cls('chem-hauler');
+      const at = (t: number) =>
+        estimateTrip(hauler, site('gateway'), site('vesta-mines'), START_JD, ctx, t);
+      expect(at(0)).not.toBeNull();
+      expect(at(hauler.cargoT)).toBeNull();
+      const luna = (t: number) =>
+        estimateTrip(hauler, site('gateway'), site('luna-base'), START_JD, ctx, t)!;
+      expect(luna(hauler.cargoT).fuelT).toBeGreaterThan(luna(0).fuelT * 3);
+    });
+
+    it('aerobrakes into Mars instead of paying a powered descent', () => {
+      const ntr = cls('ntr-freighter');
+      const noAir = new NavContext(eph, { ...DEFAULT_SCENARIO.constants.nav, aerobrakeBodies: [] });
+      expect(ctx.aerobrakes('mars')).toBe(true);
+      expect(ctx.aerobrakes('moon')).toBe(false);
+      const trip = (c: NavContext) =>
+        estimateTrip(ntr, site('gateway'), site('mars-colony'), START_JD, c, 0)!.deltaVKmS;
+      // The capture burn and the 4.3 km/s powered landing give way to one 0.5 km/s burn.
+      expect(trip(ctx)).toBeLessThan(trip(noAir) - 3);
+    });
+
+    it('a loaded torch ship accelerates less, so it arrives later', () => {
+      const ff = cls('fusion-freighter');
+      const empty = estimateTrip(ff, site('gateway'), site('ceres-colony'), START_JD, ctx, 0)!;
+      const full = estimateTrip(
+        ff,
+        site('gateway'),
+        site('ceres-colony'),
+        START_JD,
+        ctx,
+        ff.cargoT,
+      )!;
+      expect(full.arriveJd).toBeGreaterThan(empty.arriveJd + 1);
+      expect(full.fuelT).toBeGreaterThan(empty.fuelT);
+    });
+
+    it('caches estimates per eighth of capacity, rounding the load up', () => {
+      const ntr = cls('ntr-freighter');
+      const c = new NavContext(eph);
+      const a = c.estimateCached(ntr, site('gateway'), site('mars-colony'), START_JD, 1);
+      const b = c.estimateCached(
+        ntr,
+        site('gateway'),
+        site('mars-colony'),
+        START_JD,
+        ntr.cargoT / 8,
+      );
+      const empty = c.estimateCached(ntr, site('gateway'), site('mars-colony'), START_JD, 0);
+      expect(b).toBe(a);
+      expect(a).not.toBe(empty);
     });
   });
 });

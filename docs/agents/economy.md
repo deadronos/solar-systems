@@ -161,7 +161,8 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
 Every `industry.reviewDays` (gated on the tick, like contract generation), a settlement with
 no project and idle workers evaluates every recipe in sorted id order:
 
-- **Expand** an existing facility running at ≥ `minUtilisation`, by `expansionFraction`.
+- **Expand** an existing facility running at ≥ `minUtilisation`, by `expansionFraction` (at
+  least one worker's worth: 10% of a small water plant is less than one person's work).
 - **Build** a new one sized for up to `newFacilityWorkers` idle workers. Processing recipes
   can be built anywhere; extraction recipes (no inputs) only on the site's `deposits`.
 - **Margin per day** = added rate × (outputs − inputs) − maintenance. Output is worth the
@@ -172,7 +173,13 @@ no project and idle workers evaluates every recipe in sorted id order:
 - A **build kit** (`kitPerWorker` × added workers: machinery and steel) must be affordable
   from funds beyond the survival reserve and pay back within `maxPaybackDays`.
 - **Urgent life support** (a survival output below `survivalMargin` × consumption) wins
-  regardless of margin, but only if its inputs are produced locally.
+  regardless of margin, but only if its inputs are produced locally. When an input is made
+  locally but not enough (a farm short of local water), the facilities making that input
+  become urgent instead, up to three links (food ← water ← ice).
+- Urgent life support may be sized from 5% of the workforce even with no idle workers: it
+  is staffed first, so it takes workers from industry. Anything else is sized from idle
+  workers only. Without these two rules, Vesta's mines took every worker and its farms
+  could never grow.
 
 The chosen project (`settlement.project`) emits `InvestmentDecision` with a plain reason. Its
 kit is added to demand over `kitDemandDays`, so the settlement imports it through ordinary

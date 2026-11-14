@@ -433,7 +433,7 @@ export class AiBrain implements CompanyController {
                   [here, s2.id],
                   [s2.id, c.settlementId],
                 ];
-          const t = this.#legs(view, ship, l);
+          const t = this.#legs(view, ship, l, c.qty);
           if (!t || view.jd + t.days > c.deadlineJd) continue;
           const cost = view.ask(s2.id, c.good, c.qty) * c.qty + t.cost;
           if (!best || cost < best.cost) best = { src: s2.id, cost, legs: l };
@@ -444,7 +444,7 @@ export class AiBrain implements CompanyController {
         if (purchase > cash) continue;
         legs.push(...best.legs);
       }
-      const trip = this.#legs(view, ship, legs);
+      const trip = this.#legs(view, ship, legs, c.qty);
       if (!trip || view.jd + trip.days > c.deadlineJd) continue;
       const cost = purchase + trip.cost;
       const profit = c.reward - cost;
@@ -518,7 +518,7 @@ export class AiBrain implements CompanyController {
               [here, r.source],
               [r.source, r.dest],
             ];
-      const trip = this.#legs(view, ship, legs);
+      const trip = this.#legs(view, ship, legs, r.qty);
       if (!trip) continue;
       const cost = r.ask * r.qty + trip.cost;
       const profit = riskAdjustedProfit(
@@ -622,7 +622,7 @@ export class AiBrain implements CompanyController {
             [here, c.settlementId],
             [c.settlementId, buyer.id],
           ];
-    const trip = this.#legs(view, ship, legs);
+    const trip = this.#legs(view, ship, legs, c.qty);
     if (!trip) return null;
     const cost = c.escrowCost + trip.cost;
     const profit = riskAdjustedProfit(
@@ -654,17 +654,23 @@ export class AiBrain implements CompanyController {
     };
   }
 
-  /** Sum days and running costs over consecutive legs (null if any leg is infeasible). */
+  /**
+   * Sum days and running costs over consecutive legs (null if any leg is infeasible). The
+   * last leg carries `loadT` on top of the cargo aboard; earlier legs only what is aboard.
+   * Fuel follows the rocket equation, so a heavy last leg can be out of range (#20).
+   */
   #legs(
     view: CompanyView,
     ship: DeepReadonly<Ship>,
     legs: [string, string][],
+    loadT = 0,
   ): { days: number; cost: number } | null {
     const cls = view.shipClass(ship.classId);
+    const aboard = cargoMass(ship);
     let days = 0;
     let cost = 0;
-    for (const [a, b] of legs) {
-      const est = view.estimateTrip(ship.id, a, b);
+    for (const [i, [a, b]] of legs.entries()) {
+      const est = view.estimateTrip(ship.id, a, b, aboard + (i === legs.length - 1 ? loadT : 0));
       if (!est) return null;
       // Exotic fuel is only sold at shipyards; chemical/fusion fuel may cost an emergency premium.
       if (est.exoticCost > 0 && !view.settlement(a)?.isShipyard) return null;
@@ -683,7 +689,13 @@ export class AiBrain implements CompanyController {
   #dispatch(view: CompanyView, ship: DeepReadonly<Ship>, to: string, cmds: Command[]): boolean {
     const from = ship.siteId!;
     if (from === to) return false;
-    const est = view.estimateTrip(ship.id, from, to);
+    // Cargo this batch loads before the dispatch runs counts toward the trip's mass.
+    let loading = 0;
+    for (const cmd of cmds) {
+      if (cmd.type === 'BuyCargo' && cmd.shipId === ship.id) loading += cmd.qty;
+      if (cmd.type === 'LoadContractCargo') loading += view.contract(cmd.contractId)?.qty ?? 0;
+    }
+    const est = view.estimateTrip(ship.id, from, to, cargoMass(ship) + loading);
     if (!est) return false;
     if (est.exoticCost > 0 && !view.settlement(from)?.isShipyard) return false;
     if (this.#fuelCost(view, from, est) > view.company.cash) return false;
@@ -721,10 +733,15 @@ export class AiBrain implements CompanyController {
     let best: { id: string; cost: number } | null = null;
     for (const s of view.settlements()) {
       if (s.id === dest || s.id === here || this.#spare(view, s.id, good) < qty) continue;
-      const t = this.#legs(view, ship, [
-        [here, s.id],
-        [s.id, dest],
-      ]);
+      const t = this.#legs(
+        view,
+        ship,
+        [
+          [here, s.id],
+          [s.id, dest],
+        ],
+        qty,
+      );
       if (!t) continue;
       const cost = view.ask(s.id, good, qty) * qty + t.cost;
       if (!best || cost < best.cost) best = { id: s.id, cost };
@@ -747,15 +764,35 @@ export class AiBrain implements CompanyController {
     this.#lastFleetReview = view.jd;
     const ships = view.ships().filter((s) => s.state !== 'building');
     let busy = 0;
+    const byClass = new Map<string, { busy: number; n: number; profit: number; trips: number }>();
     for (const s of ships) {
-      busy += s.busyDays - (this.#lastBusy.get(s.id) ?? 0);
+      const b = s.busyDays - (this.#lastBusy.get(s.id) ?? 0);
+      busy += b;
       this.#lastBusy.set(s.id, s.busyDays);
+      const c = byClass.get(s.classId) ?? { busy: 0, n: 0, profit: 0, trips: 0 };
+      c.busy += b;
+      c.n++;
+      c.profit += s.stats.revenue - s.stats.costs;
+      c.trips += s.stats.trips;
+      byClass.set(s.classId, c);
     }
     const util = ships.length > 0 ? busy / (ships.length * elapsed) : 1;
     const cash = view.company.cash;
 
     if (cash > p.expansionCashThreshold && util >= p.targetUtilisation) {
-      const cls = this.#pickClass(view, cash);
+      // Don't buy more of a class this company's own ships show doesn't pay: left idle, or
+      // losing money after a few trips. With fuel by the rocket equation (#20), some classes
+      // can't pay their way on most routes (an NTR's 400-day arcs keep it busy, at a loss).
+      const avoid = new Set(
+        [...byClass]
+          .filter(
+            ([, c]) =>
+              c.busy / (c.n * elapsed) < view.ai.lowUtilisationThreshold ||
+              (c.trips >= c.n && c.profit < 0),
+          )
+          .map(([id]) => id),
+      );
+      const cls = this.#pickClass(view, cash, avoid);
       const yard = this.#pickYard(view);
       if (cls && yard) cmds.push({ type: 'PurchaseShip', classId: cls.id, shipyardSiteId: yard });
       return;
@@ -781,11 +818,11 @@ export class AiBrain implements CompanyController {
     }
   }
 
-  #pickClass(view: CompanyView, cash: number): ShipClass | null {
+  #pickClass(view: CompanyView, cash: number, idle: ReadonlySet<string>): ShipClass | null {
     const p = view.personality;
     const affordable = view
       .shipClasses()
-      .filter((c) => c.price <= cash * view.ai.shipPurchaseCashFraction);
+      .filter((c) => c.price <= cash * view.ai.shipPurchaseCashFraction && !idle.has(c.id));
     const preferred = affordable.filter((c) => p.preferredTiers.includes(c.tier));
     const pool = preferred.length > 0 ? preferred : affordable;
     return pool.toSorted((a, b) => b.price - a.price || a.id.localeCompare(b.id))[0] ?? null;

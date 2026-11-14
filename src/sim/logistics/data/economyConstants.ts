@@ -168,8 +168,15 @@ export const ECONOMY_CONSTANTS: EconomyConstants = {
     surfaceDvFactor: 1.2,
     /** Local transfer parking radius as a multiple of body radius. */
     lowOrbitFactor: 1.05,
-    /** Days added per km/s of delta-v when scoring Lambert launch windows. */
-    transferDaysPerKmS: 0.5,
+    /**
+     * Fuel price (credits/t) the planner assumes when it weighs a launch window's upkeep days
+     * against its propellant (the real price is only known at the departure port).
+     */
+    planningFuelPrice: 1_000,
+    /** Bodies whose atmosphere lets interplanetary arrivals aerobrake (#20). */
+    aerobrakeBodies: ['earth', 'mars', 'venus', 'titan'],
+    /** Δv (km/s) an aerobraked arrival still needs: trim burns and the landing. */
+    aerobrakeKmS: 0.5,
     /** Torch paths bend around a sphere of this radius (AU) about the Sun (inside Mercury). */
     torchSunKeepOutAU: 0.3,
   },

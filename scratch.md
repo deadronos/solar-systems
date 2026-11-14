@@ -22,6 +22,7 @@ Working notes on which open issues to tackle next (as of 2026-11-14). Not a desi
   capacity counted, outbound local shuttle to Earth, survival budget only for the people's
   share of a survival good.
 
+- PR #51: #21 torch Sun avoidance (merged). Branch `feat/rocket-equation`: #20.
 - PR #50: #15 price formation (merged). PR #49: robustness soaks and production gate (merged).
 - PR #48: #16 inbound awareness (merged). Branch `test/soak-robustness`: perturbed 20-year
   soaks (`soakHarness.ts`) and a production profitability gate. Before the gate, 5 of 11
@@ -72,9 +73,13 @@ start + 700 days loses some population (66.5k vs 72k at year 20) without breakin
   a convergence check on the fixed-point loop.
 - **#19 Patched-conic Δv**: costs use raw v∞, not `√(v∞² + 2μ/r) − √(μ/r)` from a parking orbit;
   matters for deep wells (Jupiter's moons). Needs a parking-orbit radius per settlement.
-- **#20 Rocket-equation fuel**: fuel ignores cargo mass. Needs `dryMassT` and exhaust velocity per
-  ship class, and cargo mass in `estimateTrip` cache keys. Changes AI route choice, so it touches
-  economy balance too.
+- **#20 Rocket-equation fuel**: done on `feat/rocket-equation`, realistic (hydrolox 4.4, NTR 9,
+  ion 30 km/s) with aerobraking at Earth/Mars/Venus/Titan and load-dependent torch
+  acceleration. By year 20: fusion freighters carry the bulk, ion clippers the light
+  interplanetary freight, chemical ships mostly local hops, and NTRs make a small loss. Needed
+  investment fixes: urgent life support can take workers from industry, chains are followed
+  three links, and the minimum expansion is one worker. Leftover: NTRs are still bought early
+  (one or two per company) before they show a loss; the am-courier loses money.
 
 ## 3. Performance (#7)
 
@@ -100,6 +105,6 @@ start + 700 days loses some population (66.5k vs 72k at year 20) without breakin
 
 ## Suggested sequencing
 
-- Most impact: #20 (rocket-equation fuel; touches balance), then #19.
+- Most impact: #19 (parking-orbit Δv; it raises departure Δv, so recheck balance), then #25.
 - Contained physics win: the cheap first step of #21.
 - Scaling: #25 before large fleets, then #27.

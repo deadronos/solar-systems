@@ -65,6 +65,33 @@ describe('investment', () => {
     expect(s.project).toBeNull();
   });
 
+  it('expands short life support with workers taken from industry', () => {
+    // Food is short (12,000 people need 18 t/day; oxygen is made nowhere), water is plentiful
+    // locally, and the mine employs every spare worker.
+    const w = createWorld(
+      scenario(
+        colony({
+          population: 12_000,
+          facilities: [
+            { recipeId: 'grow_food', maxRatePerDay: 12 },
+            { recipeId: 'harvest_ice', maxRatePerDay: 400 },
+            { recipeId: 'melt_ice', maxRatePerDay: 400 },
+            { recipeId: 'mine_ore', maxRatePerDay: 20_000 },
+          ],
+          deposits: ['mine_ore', 'harvest_ice'],
+        }),
+      ),
+      eph,
+    );
+    const log = record(w);
+    w.advanceTo(START_JD + 3 * C.industry.reviewDays + 1);
+    expect(w.settlements.get('col')!.idleWorkers ?? 0).toBeLessThan(1);
+    const urgent = log.filter(
+      (e) => e.type === 'InvestmentDecision' && e.reason.startsWith('life support'),
+    );
+    expect(urgent.length).toBeGreaterThan(0);
+  });
+
   it('waits for an imported kit, and drops the project after the timeout', () => {
     const w = createWorld(
       scenario(colony({ initialStock: { water: 1e6, oxygen: 1e6, food: 1e6 } })),

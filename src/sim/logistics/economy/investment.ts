@@ -71,17 +71,50 @@ interface Option {
   kit: RecipeLine[];
   marginPerDay: number;
   urgentGood: GoodId | null;
+  /** Locally made inputs that kept urgent life support from counting as urgent (imports). */
+  blockedBy: GoodId[];
+  /** False when the option only reports `blockedBy` (it doesn't pay and isn't urgent). */
+  viable: boolean;
 }
 
+/** Share of the workforce urgent life support may claim from industry. */
+const LIFE_SUPPORT_WORKER_SHARE = 0.05;
+
+const producesSurvival = (world: LogisticsWorld, recipe: Recipe): boolean =>
+  recipe.outputs.some((o) => world.goods.get(o.good)?.category === 'survival');
+
 function startProject(world: LogisticsWorld, s: Settlement): void {
-  const idle = s.idleWorkers ?? 0;
+  // Life support is staffed first (production runs it before industry), so urgent life
+  // support may be sized from the whole workforce, taking workers from industry. Without
+  // this, Vesta's mines took every worker and its food farm could never grow (#20).
+  const idle = Math.max(
+    s.idleWorkers ?? 0,
+    s.population * world.constants.population.workforceFraction * LIFE_SUPPORT_WORKER_SHARE,
+  );
   if (idle < 1) return;
   const funds = availableFunds(s) - survivalReserve(world, s);
+  // Urgent life support that would run on imported survival inputs (a food farm short of
+  // local water) makes the facilities producing those inputs urgent instead.
+  // Followed up to three links (food ← water ← ice).
+  const upstream = new Set<GoodId>();
+  for (let pass = 0; pass < 3; pass++) {
+    const before = upstream.size;
+    for (const id of sortedIds(world.recipes)) {
+      for (const g of evaluate(world, s, world.recipes.get(id)!, idle, upstream)?.blockedBy ?? [])
+        upstream.add(g);
+    }
+    if (upstream.size === before) break;
+  }
   let best: Option | null = null;
   let bestScore = Number.NEGATIVE_INFINITY;
   for (const id of sortedIds(world.recipes)) {
-    const option = evaluate(world, s, world.recipes.get(id)!, idle);
-    if (!option) continue;
+    const recipe = world.recipes.get(id)!;
+    let option = evaluate(world, s, recipe, idle, upstream);
+    // Only urgent life support may claim employed workers; size anything else from idle ones.
+    const spare = s.idleWorkers ?? 0;
+    if (option && !option.urgentGood && option.addRatePerDay * recipe.workersPerUnitPerDay > spare)
+      option = spare >= 1 ? evaluate(world, s, recipe, spare, upstream) : null;
+    if (!option?.viable) continue;
     if (kitCost(world, s, option.kit) > funds) continue;
     // Life support for a short good comes first, whatever its margin.
     const score = option.urgentGood ? 1e15 + option.marginPerDay : option.marginPerDay;
@@ -117,16 +150,23 @@ function evaluate(
   s: Settlement,
   recipe: Recipe,
   idle: number,
+  upstream: ReadonlySet<GoodId> = new Set(),
 ): Option | null {
   const c = world.constants.industry;
   const wpu = recipe.workersPerUnitPerDay;
   if (!(wpu > 0)) return null;
+  // Only life support may draw on the workers industry already employs (see startProject).
+  if (!producesSurvival(world, recipe)) idle = Math.min(idle, s.idleWorkers ?? 0);
   const existing = s.facilities.find((f) => f.recipeId === recipe.id);
   let addRatePerDay: number;
   if (existing) {
     // Expanding only helps a facility that is limited by its capacity.
     if ((existing.utilisation ?? 0) < c.minUtilisation) return null;
-    addRatePerDay = Math.min(existing.maxRatePerDay * c.expansionFraction, idle / wpu);
+    // At least one worker's worth: 10% of a small farm is less than one person's work.
+    addRatePerDay = Math.min(
+      Math.max(existing.maxRatePerDay * c.expansionFraction, 1 / wpu),
+      idle / wpu,
+    );
   } else {
     const extraction = recipe.inputs.length === 0;
     if (extraction && !s.deposits?.includes(recipe.id)) return null;
@@ -141,28 +181,46 @@ function evaluate(
     value += o.qty * outputValue(world, s, o.good, addRatePerDay * o.qty);
     const e = s.market[o.good];
     const survival = world.goods.get(o.good)?.category === 'survival';
-    if (survival && e.productionPerDay < e.consumptionPerDay * c.survivalMargin) {
+    if (
+      (survival && e.productionPerDay < e.consumptionPerDay * c.survivalMargin) ||
+      upstream.has(o.good)
+    ) {
       urgentGood ??= o.good;
     }
   }
   // Inputs local output can't cover must be imported: price them at import cost.
   let importsInputs = false;
+  const blockedBy: GoodId[] = [];
   for (const i of recipe.inputs) {
     const e = s.market[i.good];
     const local = e.productionPerDay >= e.consumptionPerDay + addRatePerDay * i.qty;
-    if (!local) importsInputs = true;
+    if (!local) {
+      importsInputs = true;
+      if (e.productionPerDay > 0) blockedBy.push(i.good);
+    }
     value -= i.qty * (local ? e.price : importPrice(world, s, i.good));
   }
   // Urgent life support must run on local inputs, or it only moves the shortage into imports.
+  const wasUrgent = urgentGood !== null;
   if (importsInputs) urgentGood = null;
+  if (!wasUrgent) blockedBy.length = 0;
   const maintenance = workers * c.maintenancePerWorkerDay * importPrice(world, s, 'machinery');
   const marginPerDay = addRatePerDay * value - maintenance;
   const kit = c.kitPerWorker.map((k) => ({ good: k.good, qty: Math.ceil(k.qty * workers) }));
-  if (!urgentGood) {
-    if (!(marginPerDay > 0)) return null;
-    if (kitCost(world, s, kit) / marginPerDay > c.maxPaybackDays) return null;
-  }
-  return { recipe, addRatePerDay, isNew: !existing, kit, marginPerDay, urgentGood };
+  const viable =
+    urgentGood !== null ||
+    (marginPerDay > 0 && kitCost(world, s, kit) / marginPerDay <= c.maxPaybackDays);
+  if (!viable && blockedBy.length === 0) return null;
+  return {
+    recipe,
+    addRatePerDay,
+    isNew: !existing,
+    kit,
+    marginPerDay,
+    urgentGood,
+    blockedBy,
+    viable,
+  };
 }
 
 /** Earth's price for a good, if the scenario has a deep market. */
