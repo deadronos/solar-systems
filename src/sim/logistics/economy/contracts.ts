@@ -55,7 +55,7 @@ function tripCostAndDays(world: LogisticsWorld, from: Settlement, to: Settlement
     start +
     Math.floor((world.jd - start) / HAUL_PRICING_BUCKET_DAYS + 1e-9) * HAUL_PRICING_BUCKET_DAYS;
   for (const cls of bulk) {
-    const est = world.nav.estimateCached(cls, from, to, pricedJd);
+    const est = world.nav.estimateCached(cls, from, to, pricedJd, qty);
     if (!est) continue;
     const days = est.arriveJd - pricedJd;
     // A carrier makes the whole trip regardless of load size, so price the full trip.

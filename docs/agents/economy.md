@@ -121,8 +121,7 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
     production gate, `PriceChanged` and the HUD use it, so one ship's cargo no longer swings
     them 4× overnight. `askPrice` / `bidPrice` are posted quotes (±spread/2).
   - **Trades** use `quoteBuy` / `quoteSell` (`BuyCargo`, `SellCargo`, fuel, local shuttles,
-    sourcing, AI quotes): the curve averaged over the stock the order moves (slippage, 8
-    samples), or the posted price if that is worse for the trader, ±spread/2. Taking the
+    sourcing, AI quotes): the curve averaged over the stock the order moves (slippage, integrated exactly), or the posted price if that is worse for the trader, ±spread/2. Taking the
     worse of the two means a lagging posted price is never a bargain after a rival has
     flooded or emptied the market. Settlements buy only if they consume the good and can pay
     from **available funds**, and only up to `markets.maxStockMultiple` × target stock (3× by
@@ -161,7 +160,8 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
 Every `industry.reviewDays` (gated on the tick, like contract generation), a settlement with
 no project and idle workers evaluates every recipe in sorted id order:
 
-- **Expand** an existing facility running at ≥ `minUtilisation`, by `expansionFraction`.
+- **Expand** an existing facility running at ≥ `minUtilisation`, by `expansionFraction` (at
+  least one worker's worth: 10% of a small water plant is less than one person's work).
 - **Build** a new one sized for up to `newFacilityWorkers` idle workers. Processing recipes
   can be built anywhere; extraction recipes (no inputs) only on the site's `deposits`.
 - **Margin per day** = added rate × (outputs − inputs) − maintenance. Output is worth the
@@ -172,7 +172,13 @@ no project and idle workers evaluates every recipe in sorted id order:
 - A **build kit** (`kitPerWorker` × added workers: machinery and steel) must be affordable
   from funds beyond the survival reserve and pay back within `maxPaybackDays`.
 - **Urgent life support** (a survival output below `survivalMargin` × consumption) wins
-  regardless of margin, but only if its inputs are produced locally.
+  regardless of margin, but only if its inputs are produced locally. When an input is made
+  locally but not enough (a farm short of local water), the facilities making that input
+  become urgent instead, up to three links (food ← water ← ice).
+- Urgent life support may be sized from 5% of the workforce even with no idle workers: it
+  is staffed first, so it takes workers from industry. Anything else is sized from idle
+  workers only. Without these two rules, Vesta's mines took every worker and its farms
+  could never grow.
 
 The chosen project (`settlement.project`) emits `InvestmentDecision` with a plain reason. Its
 kit is added to demand over `kitDemandDays`, so the settlement imports it through ordinary
@@ -249,5 +255,5 @@ later.
 
 Colony money holds roughly steady in total (#11), but it still pools at Ceres (the shipyard
 colony and the largest exporter). Most sell orders expire unfilled. Investment only adds
-capacity; unprofitable industry idles but is never demolished. Slippage is sampled, not
-integrated exactly, and settlements don't reprice non-survival orders.
+capacity; unprofitable industry idles but is never demolished. Settlements don't reprice
+non-survival orders.

@@ -12,8 +12,9 @@
     "lint:fix": "oxlint --fix",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "test": "vitest run",
-    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test",
+    "test": "vitest run --exclude '**/perf.test.ts'",
+    "test:perf": "vitest run src/sim/logistics/perf.test.ts",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm test:perf",
     "release": "node scripts/release.mjs"
   },
   "dependencies": {

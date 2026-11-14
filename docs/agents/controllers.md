@@ -63,7 +63,10 @@ To add a command: add a union member to `Command`, a `case` in `apply()` that va
   - Open contracts are shortlisted by profit before travel (reward less the cheapest goods,
     the freight fee, or a sell order's resale gain); only the top 8 are costed per ship,
     using landed source cost plus the cost of each leg.
-    Contract and trade estimates include the scenario docking fee per leg.
+    Contract and trade estimates include the scenario docking fee per leg. Legs are
+    estimated with the cargo they will carry (`#legs(…, loadT)`: earlier legs what is aboard,
+    the last one plus the planned load), and `#dispatch` adds cargo the same batch buys or
+    loads, because fuel follows the rocket equation (#20).
   - Sell orders (`export` contracts) are scored like trades: the offer price plus legs to the
     seller and on to the best bid, risk-discounted. On loading, the ship's job becomes a
     trade to that buyer.
@@ -82,7 +85,10 @@ To add a command: add a union member to `Command`, a `case` in `apply()` that va
   is rejected.
 - **Fleet review**:
   - Buys a ship when cash is above `expansionCashThreshold` and utilisation is at least
-    `targetUtilisation`.
+    `targetUtilisation`: the dearest affordable class in its `preferredTiers`, skipping any
+    class whose own ships it leaves idle or which lose money after one trip per ship. Bulk
+    and contract carriers prefer tiers 2–3, because realistic fuel makes chemical bulk
+    haulage unprofitable.
   - Sells the worst idle ship when in distress or when idle and poor.
 - Memory (`#jobs`, `#nextLook`, `#lastBusy`) is **advisory**. The world is the truth: a ship's
   `contractId` overrides remembered jobs. Snapshots preserve that memory, the last fleet

@@ -198,7 +198,8 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const to = world.settlements.get(cmd.toSiteId) ?? reject('unknown-site');
       if (to.id === from.id) reject('same-site');
       const plan =
-        planTrip(world.shipClassOf(ship), from, to, world.jd, world.nav) ?? reject('no-route');
+        planTrip(world.shipClassOf(ship), from, to, world.jd, world.nav, cargoMass(ship)) ??
+        reject('no-route');
       let cost = plan.exoticCost;
       if (plan.exoticCost > 0 && !from.isShipyard) reject('no-exotic-fuel');
       const fuel = from.market.fuel;

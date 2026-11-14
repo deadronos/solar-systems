@@ -1,6 +1,6 @@
 import { AU_KM } from '../../constants.ts';
 import { length, vec3 } from '../../math/vec3.ts';
-import { fuelPricePerTonne } from '../core/commands.ts';
+import { cargoMass, fuelPricePerTonne } from '../core/commands.ts';
 import { sortedIds } from '../core/sortedIds.ts';
 import type { LogisticsWorld } from '../core/world.ts';
 import { maxBuyQty, quoteBuy, quoteSell } from '../economy/markets.ts';
@@ -108,12 +108,13 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
       const s = site(sid);
       return s.isDeepMarket ? Number.POSITIVE_INFINITY : maxBuyQty(s.market[good], c.markets);
     },
-    estimateTrip: (shipId, fromId, toId) => {
+    estimateTrip: (shipId, fromId, toId, cargoT) => {
       const ship = world.ships.get(shipId);
       if (!ship || ship.companyId !== companyId) return null;
-      return snapshot(
-        world.nav.estimateCached(world.shipClassOf(ship), site(fromId), site(toId), world.jd),
-      );
+      const cls = world.shipClassOf(ship);
+      // The view's copy of the ship: a decision sees one consistent state.
+      const load = Math.min(cls.cargoT, cargoT ?? cargoMass(snapshot(ship)));
+      return snapshot(world.nav.estimateCached(cls, site(fromId), site(toId), world.jd, load));
     },
     fuelPrice: (sid, qty) => fuelPricePerTonne(world, site(sid), qty),
     distanceFromSunAU: (sid) =>

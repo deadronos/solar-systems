@@ -9,7 +9,6 @@ import type { Leg, TrajectoryPlan } from './plan.ts';
 
 const DAY = 86_400;
 const C_KM_S = 299_792.458;
-const G0_KM_S2 = 0.009_806_65;
 
 const GRID_REFRESH_DAYS = 120;
 
@@ -24,6 +23,9 @@ export interface TripEstimate {
 interface Cell {
   departJd: number;
   tofDays: number;
+  /** Departure and arrival v∞ burns (km/s); `dv` is their sum. */
+  dvDep: number;
+  dvArr: number;
   dv: number;
 }
 
@@ -45,7 +47,8 @@ export class PorkchopCache {
   }
 
   restore(grids: NavState['grids']): void {
-    this.#grids = new Map(grids);
+    // Grids from before #20 have no split burns; drop them and rebuild on demand.
+    this.#grids = new Map(grids.filter(([, g]) => g.cells.every((c) => c.dvArr !== undefined)));
   }
 
   cells(fromBody: string, toBody: string, earliestJd: number): Cell[] {
@@ -111,11 +114,17 @@ export class NavContext {
     return this.eph.get(bodyId).gm ?? 0;
   }
 
+  /** Powered ascent from (or descent to) a surface site; 0 in orbit. */
   surfaceDv(site: Settlement): number {
     if (site.site.kind !== 'surface') return 0;
     const gm = this.gm(site.site.bodyId);
     const r = this.eph.get(site.site.bodyId).radiusKm;
     return gm > 0 ? this.balance.surfaceDvFactor * Math.sqrt(gm / r) : 0;
+  }
+
+  /** Whether arrivals at this body can brake in its atmosphere (#20). */
+  aerobrakes(bodyId: string): boolean {
+    return this.balance.aerobrakeBodies.includes(bodyId);
   }
 
   pairTimescales(fromBody: string, toBody: string): { synodicDays: number; hohmannDays: number } {
@@ -152,12 +161,15 @@ export class NavContext {
     from: Settlement,
     to: Settlement,
     jd: number,
+    cargoT = 0,
   ): TripEstimate | null {
-    const key = `${cls.id}|${from.id}|${to.id}|${jd}`;
+    // Loads share an estimate per eighth of capacity, rounded up (never optimistic).
+    const bucket = loadBucket(cls, cargoT);
+    const key = `${cls.id}|${from.id}|${to.id}|${jd}|${bucket}`;
     const cached = this.#estimates.get(key);
     if (cached !== undefined) return cached;
     if (this.#estimates.size > 20_000) this.#estimates.clear();
-    const estimate = estimateTrip(cls, from, to, jd, this);
+    const estimate = estimateTrip(cls, from, to, jd, this, (bucket / LOAD_BUCKETS) * cls.cargoT);
     this.#estimates.set(key, estimate);
     return estimate;
   }
@@ -176,8 +188,9 @@ export class NavContext {
       bodyState(this.eph, toBody, toHelio, departJd + tofDays, r2, vArr);
       const sol = solveLambert(r1, r2, tofDays * DAY, MU_SUN_KM3_S2);
       if (!sol) continue;
-      const dv = length(sub(vec3(), sol.v1, vDep)) + length(sub(vec3(), sol.v2, vArr));
-      out.push({ departJd, tofDays, dv });
+      const dvDep = length(sub(vec3(), sol.v1, vDep));
+      const dvArr = length(sub(vec3(), sol.v2, vArr));
+      out.push({ departJd, tofDays, dvDep, dvArr, dv: dvDep + dvArr });
     }
     return out;
   }
@@ -273,6 +286,32 @@ function torchSolve(
   return { t1, from, to, via, dv };
 }
 
+/** Estimates share results per 1/LOAD_BUCKETS of a class's cargo capacity. */
+const LOAD_BUCKETS = 8;
+
+const loadBucket = (cls: ShipClass, cargoT: number): number =>
+  cls.cargoT > 0 && cargoT > 0
+    ? Math.min(LOAD_BUCKETS, Math.ceil((cargoT / cls.cargoT) * LOAD_BUCKETS - 1e-9))
+    : 0;
+
+/**
+ * Propellant (t) to give `dv` km/s to a ship carrying `cargoT`, by the rocket equation:
+ * (dry + cargo) × (e^(Δv/vₑ) − 1). Infinite for a class with no exhaust velocity.
+ */
+export function propellantT(cls: ShipClass, cargoT: number, dv: number): number {
+  const ve = cls.exhaustVelocityKmS ?? 0;
+  if (!(dv > 0)) return 0;
+  if (!(ve > 0)) return Number.POSITIVE_INFINITY;
+  return (cls.dryMassT + cargoT) * Math.expm1(dv / ve);
+}
+
+/** Most Δv (km/s) a full tank gives with `cargoT` aboard. */
+export function maxDeltaV(cls: ShipClass, cargoT: number): number {
+  const ve = cls.exhaustVelocityKmS ?? 0;
+  const m = cls.dryMassT + cargoT;
+  return ve > 0 && m > 0 ? ve * Math.log1p((cls.tankT ?? 0) / m) : 0;
+}
+
 function solveTrip(
   cls: ShipClass,
   from: Settlement,
@@ -280,16 +319,18 @@ function solveTrip(
   earliestJd: number,
   ctx: NavContext,
   withLegs: boolean,
+  cargoT: number,
 ): Solved | null {
   if (from.id === to.id) return null;
   const fromBody = from.site.bodyId;
   const toBody = to.site.bodyId;
   const legs: Leg[] = [];
+  const maxDv = cls.tier <= 4 ? maxDeltaV(cls, cargoT) : Number.POSITIVE_INFINITY;
 
   // Same body: a docking hop between stations / surface and orbit.
   if (fromBody === toBody) {
     const dv = Math.max(ctx.surfaceDv(from), ctx.surfaceDv(to));
-    if (cls.deltaVBudgetKmS !== undefined && dv > cls.deltaVBudgetKmS) return null;
+    if (dv > maxDv) return null;
     if (withLegs)
       legs.push(hold(fromBody, earliestJd, earliestJd + ctx.balance.sameBodyDays, 'docking'));
     return {
@@ -301,10 +342,13 @@ function solveTrip(
   }
 
   const ascentDv = ctx.surfaceDv(from);
-  const descentDv = ctx.surfaceDv(to);
+  const local = ctx.helioBody(fromBody) === ctx.helioBody(toBody);
+  // Arrivals at a body with an atmosphere (from another planet, or from a moon down to its
+  // planet) aerobrake: one small burn replaces the capture burn and the powered descent (#20).
+  const aero = ctx.aerobrakes(toBody) && (!local || toBody === ctx.helioBody(toBody));
+  const descentDv = aero ? ctx.balance.aerobrakeKmS : ctx.surfaceDv(to);
   const ascentDays = from.site.kind === 'surface' ? ctx.balance.surfaceLegDays : 0;
   const descentDays = to.site.kind === 'surface' ? ctx.balance.surfaceLegDays : 0;
-  const local = ctx.helioBody(fromBody) === ctx.helioBody(toBody);
 
   let transferStart: number;
   let transferEnd: number;
@@ -312,17 +356,19 @@ function solveTrip(
   const transferLegs: Leg[] = [];
 
   if (cls.tier <= 2) {
-    const budget = (cls.deltaVBudgetKmS ?? 0) - ascentDv - descentDv;
+    const budget = maxDv - ascentDv - descentDv;
     if (budget <= 0) return null;
     if (local) {
       const r = localTransfer(ctx, fromBody, toBody, from, to, earliestJd + ascentDays, withLegs);
-      if (!r || r.dv > budget) return null;
+      const dv = r ? r.dvDep + (aero ? 0 : r.dvArr) : 0;
+      if (!r || dv > budget) return null;
       transferStart = earliestJd + ascentDays;
       transferEnd = r.t1;
-      transferDv = r.dv;
+      transferDv = dv;
       if (r.leg) transferLegs.push(r.leg);
     } else {
       const t0 = earliestJd + ascentDays;
+      const burn = (c: Cell) => c.dvDep + (aero ? 0 : c.dvArr);
       // Immediate departures first, then later launch windows (earlier cells win ties).
       const now = ctx.sweepFrom(fromBody, toBody, t0);
       const later = ctx.porkchop.cells(fromBody, toBody, t0);
@@ -330,8 +376,13 @@ function solveTrip(
       let bestScore = Number.POSITIVE_INFINITY;
       for (const list of [now, later]) {
         for (const c of list) {
-          if (c.dv > budget || (list === later && c.departJd < t0)) continue;
-          const score = c.departJd + c.tofDays + c.dv * ctx.balance.transferDaysPerKmS; // prefer early arrival, then efficiency
+          const dv = burn(c);
+          if (dv > budget || (list === later && c.departJd < t0)) continue;
+          // Cheapest trip for this class: days of upkeep (waiting included) plus propellant,
+          // which grows exponentially with Δv. Ties go to the earlier cell.
+          const days = c.departJd + c.tofDays - earliestJd;
+          const prop = propellantT(cls, cargoT, ascentDv + dv + descentDv);
+          const score = days * cls.upkeepPerDay + prop * ctx.balance.planningFuelPrice;
           if (score < bestScore) {
             best = c;
             bestScore = score;
@@ -341,7 +392,7 @@ function solveTrip(
       if (!best) return null;
       transferStart = best.departJd;
       transferEnd = best.departJd + best.tofDays;
-      transferDv = best.dv;
+      transferDv = burn(best);
       if (withLegs) {
         const r1 = ctx.eph.positionAt(fromBody, transferStart, vec3());
         const r2 = ctx.eph.positionAt(toBody, transferEnd, vec3());
@@ -359,23 +410,33 @@ function solveTrip(
       }
     }
   } else if (cls.tier <= 4) {
-    const accel = (cls.accelG ?? 0.01) * G0_KM_S2;
+    // Acceleration is thrust over starting mass, which includes the propellant the trip
+    // needs, which depends on the trip: iterate a few times from the dry + cargo mass.
     const vMax =
       cls.tier === 4 ? (cls.maxSpeedFractionC ?? 0.05) * C_KM_S : Number.POSITIVE_INFINITY;
     transferStart = earliestJd + ascentDays;
-    const r = torchSolve(ctx, fromBody, toBody, transferStart, accel, vMax);
-    transferEnd = r.t1;
-    transferDv = r.dv;
+    let prop = 0;
+    let accel = 0;
+    let r: ReturnType<typeof torchSolve> | null = null;
+    for (let k = 0; k < 4; k++) {
+      accel = ((cls.thrustKN ?? 0) / (cls.dryMassT + cargoT + prop)) * 1e-3;
+      if (!(accel > 0)) return null;
+      r = torchSolve(ctx, fromBody, toBody, transferStart, accel, vMax);
+      prop = Math.min(propellantT(cls, cargoT, r.dv + ascentDv + descentDv), cls.tankT ?? 0);
+    }
+    if (r!.dv + ascentDv + descentDv > maxDv) return null;
+    transferEnd = r!.t1;
+    transferDv = r!.dv;
     if (withLegs) {
       transferLegs.push({
         kind: 'torch',
         t0: transferStart,
         t1: transferEnd,
-        from: r.from,
-        to: r.to,
+        from: r!.from,
+        to: r!.to,
         accelKmS2: accel,
         vMaxKmS: Number.isFinite(vMax) ? vMax : 1e12,
-        ...(r.via ? { via: r.via } : {}),
+        ...(r!.via ? { via: r!.via } : {}),
       });
     }
   } else {
@@ -422,7 +483,7 @@ function localTransfer(
   to: Settlement,
   t0: number,
   withLegs: boolean,
-): { t1: number; dv: number; leg: Leg | null } | null {
+): { t1: number; dvDep: number; dvArr: number; leg: Leg | null } | null {
   const helio = ctx.helioBody(fromBody);
   const mu = ctx.gm(helio);
   if (!(mu > 0)) return null;
@@ -430,11 +491,10 @@ function localTransfer(
   const r2 = localRadius(ctx, toBody, helio);
   const at = (r1 + r2) / 2;
   const tofDays = (Math.PI * Math.sqrt(at ** 3 / mu)) / DAY;
-  const dv =
-    Math.abs(Math.sqrt(mu / r1) * (Math.sqrt((2 * r2) / (r1 + r2)) - 1)) +
-    Math.abs(Math.sqrt(mu / r2) * (1 - Math.sqrt((2 * r1) / (r1 + r2))));
+  const dvDep = Math.abs(Math.sqrt(mu / r1) * (Math.sqrt((2 * r2) / (r1 + r2)) - 1));
+  const dvArr = Math.abs(Math.sqrt(mu / r2) * (1 - Math.sqrt((2 * r1) / (r1 + r2))));
   const t1 = t0 + tofDays;
-  if (!withLegs) return { t1, dv, leg: null };
+  if (!withLegs) return { t1, dvDep, dvArr, leg: null };
 
   // Visual path: planet-centred Lambert arc between the actual endpoints.
   const centre = ctx.eph.positionAt(helio, t0, vec3());
@@ -461,32 +521,35 @@ function localTransfer(
   void to;
   return {
     t1,
-    dv,
+    dvDep,
+    dvArr,
     leg: { kind: 'conic', t0, t1, r0: start, v0: sol.v1, mu, centralBodyId: helio },
   };
 }
 
-function costs(cls: ShipClass, dv: number): { fuelT: number; exoticCost: number } {
+function costs(cls: ShipClass, dv: number, cargoT: number): { fuelT: number; exoticCost: number } {
   if (cls.tier === 5) return { fuelT: 0, exoticCost: cls.exoticCostPerJump ?? 0 };
-  if (cls.tier === 4) return { fuelT: 0, exoticCost: dv * (cls.exoticCostPerKmS ?? 0) };
-  return { fuelT: dv * cls.fuelTPerKmS, exoticCost: 0 };
+  const prop = propellantT(cls, cargoT, dv);
+  if (cls.tier === 4) return { fuelT: 0, exoticCost: prop * (cls.exoticCostPerT ?? 0) };
+  return { fuelT: prop, exoticCost: 0 };
 }
 
-/** Cheap trip estimate for planning (no legs built). Null when infeasible. */
+/** Cheap trip estimate for planning (no legs built) with `cargoT` aboard. Null when infeasible. */
 export function estimateTrip(
   cls: ShipClass,
   from: Settlement,
   to: Settlement,
   earliestJd: number,
   ctx: NavContext,
+  cargoT = 0,
 ): TripEstimate | null {
-  const s = solveTrip(cls, from, to, earliestJd, ctx, false);
+  const s = solveTrip(cls, from, to, earliestJd, ctx, false, cargoT);
   if (!s) return null;
   return {
     departJd: s.departJd,
     arriveJd: s.arriveJd,
     deltaVKmS: s.deltaVKmS,
-    ...costs(cls, s.deltaVKmS),
+    ...costs(cls, s.deltaVKmS, cargoT),
   };
 }
 
@@ -497,8 +560,9 @@ export function planTrip(
   to: Settlement,
   earliestJd: number,
   ctx: NavContext,
+  cargoT = 0,
 ): TrajectoryPlan | null {
-  const s = solveTrip(cls, from, to, earliestJd, ctx, true);
+  const s = solveTrip(cls, from, to, earliestJd, ctx, true, cargoT);
   if (!s) return null;
   return {
     classId: cls.id,
@@ -508,6 +572,6 @@ export function planTrip(
     arriveJd: s.arriveJd,
     legs: s.legs,
     deltaVKmS: s.deltaVKmS,
-    ...costs(cls, s.deltaVKmS),
+    ...costs(cls, s.deltaVKmS, cargoT),
   };
 }

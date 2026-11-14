@@ -31,17 +31,6 @@ describe('20-year soak', () => {
   });
 });
 
-describe('performance', () => {
-  it('runs at least 1,000 economy ticks per second headless', { timeout: 60_000 }, () => {
-    const w = createWorld(DEFAULT_SCENARIO, eph(), { controllers: true });
-    const t0 = performance.now();
-    const ticks = w.advanceTo(START_JD + 2 * 365);
-    const perSecond = ticks / ((performance.now() - t0) / 1000);
-    console.info(`logistics ticks/s: ${perSecond.toFixed(0)}`);
-    expect(perSecond).toBeGreaterThan(1_000);
-  });
-});
-
 describe('Simulation integration', () => {
   it('never runs backwards, caps speed and lets the clock wait for the economy', () => {
     const sim = new Simulation({ scenario: DEFAULT_SCENARIO, rate: -86_400, maxTicksPerStep: 4 });

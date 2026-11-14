@@ -138,20 +138,25 @@ export interface ShipClass {
   name: string;
   tier: 1 | 2 | 3 | 4 | 5;
   cargoT: number;
-  /** Tiers 1–2: Δv budget per trip (km/s). */
-  deltaVBudgetKmS?: number;
-  /** Tiers 3–4: constant acceleration (g). */
-  accelG?: number;
+  /** Empty mass without propellant (t). */
+  dryMassT: number;
+  /**
+   * Tiers 1–4: exhaust velocity (km/s). Propellant per trip follows the rocket equation, so
+   * it grows with cargo and exponentially with Δv (#20).
+   */
+  exhaustVelocityKmS?: number;
+  /** Tiers 1–4: propellant capacity (t); with the load, it sets the reachable Δv. */
+  tankT?: number;
+  /** Tiers 3–4: engine thrust (kN). Acceleration is thrust over the trip's starting mass. */
+  thrustKN?: number;
   /** Tier 4: velocity cap as a fraction of c. */
   maxSpeedFractionC?: number;
   /** Tier 5: charge time before a jump (hours). */
   jumpChargeHours?: number;
   /** Tier 5: effective jump speed in multiples of c. */
   jumpSpeedC?: number;
-  /** Propellant mass per km/s of Δv (tonnes), bought as `fuel` at departure. */
-  fuelTPerKmS: number;
-  /** Tier 4: exotic fuel cost in credits per km/s (paid at shipyards). */
-  exoticCostPerKmS?: number;
+  /** Tier 4: exotic propellant cost in credits per tonne (paid at shipyards). */
+  exoticCostPerT?: number;
   /** Tier 5: exotic fuel cost in credits per jump. */
   exoticCostPerJump?: number;
   price: number;
@@ -373,7 +378,9 @@ export interface EconomyConstants {
     sameBodyDays: number;
     surfaceDvFactor: number;
     lowOrbitFactor: number;
-    transferDaysPerKmS: number;
+    planningFuelPrice: number;
+    aerobrakeBodies: string[];
+    aerobrakeKmS: number;
     torchSunKeepOutAU: number;
   };
 }
