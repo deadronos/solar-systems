@@ -37,8 +37,16 @@ export interface CompanyView {
   shipClasses(): readonly Readonly<ShipClass>[];
   market(settlementId: string, good: GoodId): DeepReadonly<MarketEntry>;
   ask(settlementId: string, good: GoodId): number;
-  /** Price the settlement would pay for `qty`; 0 if it won't buy. */
-  bid(settlementId: string, good: GoodId, qty: number): number;
+  /**
+   * Price the settlement would pay for `qty`; 0 if it won't buy. With `incomingT`, the price
+   * once that many more tonnes have landed first (colonies only; see `projectedBidPrice`).
+   */
+  bid(settlementId: string, good: GoodId, qty: number, incomingT?: number): number;
+  /**
+   * Tonnes of a good aboard other companies' ships bound for a settlement (in transit or
+   * waiting to depart): public tracking data, like real-world AIS. Excludes own ships.
+   */
+  inbound(settlementId: string, good: GoodId): number;
   /** Tonnes the settlement will still buy. */
   demandRoom(settlementId: string, good: GoodId): number;
   estimateTrip(shipId: string, fromSiteId: string, toSiteId: string): Readonly<TripEstimate> | null;

@@ -6,6 +6,7 @@ import { START_JD } from '../core/time.ts';
 import { createWorld } from '../createWorld.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { SETTLEMENTS } from '../data/settlements.ts';
+import { outputValue } from './investment.ts';
 import { runProduction } from './production.ts';
 import type { ScenarioConfig, SettlementDef } from './types.ts';
 
@@ -137,5 +138,33 @@ describe('maintenance and the life-support reserve', () => {
     expect(s.market.fuel.stock - fuel0).toBeCloseTo(10 / 1.1, 6);
     runProduction(s, w, 0.25);
     expect(s.market.water.stock).toBeCloseTo(reserve, 6);
+  });
+
+  describe('output value', () => {
+    /** Colony short of fuel: it uses 2 t/day, makes none, and its local price is high. */
+    const shortOfFuel = () => {
+      const w = createWorld(scenario(colony({ facilities: [] })), eph);
+      const s = w.settlements.get('col')!;
+      const e = s.market.fuel;
+      e.consumptionPerDay = 2;
+      e.productionPerDay = 0;
+      e.price = 5_000;
+      const netback =
+        w.settlements.get('earth-exchange')!.market.fuel.price * C.industry.exportNetback;
+      return { w, s, netback };
+    };
+
+    it('only the share local use absorbs earns the local price; the rest is exported', () => {
+      const { w, s, netback } = shortOfFuel();
+      expect(outputValue(w, s, 'fuel', 1)).toBeCloseTo(5_000, 6);
+      // A 200 t/day plant at a 2 t/day station mostly exports.
+      expect(outputValue(w, s, 'fuel', 200)).toBeCloseTo((2 * 5_000 + 198 * netback) / 200, 6);
+    });
+
+    it('counts idle capacity as supply, so a second plant is not valued as the first', () => {
+      const { w, s, netback } = shortOfFuel();
+      s.facilities.push({ recipeId: 'water_fuel', maxRatePerDay: 10 });
+      expect(outputValue(w, s, 'fuel', 50)).toBeCloseTo(netback, 6);
+    });
   });
 });

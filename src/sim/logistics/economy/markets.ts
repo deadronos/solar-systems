@@ -106,6 +106,27 @@ export function bidPrice(
   return funds >= p * qty ? p : 0;
 }
 
+/**
+ * Bid for `qty` once `incomingT` more tonnes have landed at a colony: the current bid scaled
+ * by how the price curve responds to the extra stock. Lets a trader price in cargo already on
+ * its way. Deep markets and `incomingT <= 0` return the plain bid, so a quote with nothing
+ * inbound matches what `SellCargo` will see.
+ */
+export function projectedBidPrice(
+  s: Pick<Settlement, 'isDeepMarket' | 'market'>,
+  good: GoodId,
+  c: EconomyConstants['markets'],
+  funds: number,
+  qty: number,
+  incomingT: number,
+): number {
+  const e = s.market[good];
+  const bid = bidPrice(e, c, funds, qty);
+  if (bid <= 0 || s.isDeepMarket || incomingT <= 0 || e.targetStock <= 0) return bid;
+  const now = priceFor(1, e.stock, e.targetStock, c);
+  return now > 0 ? (bid * priceFor(1, e.stock + incomingT, e.targetStock, c)) / now : bid;
+}
+
 /** Tonnes the settlement is still willing to buy. */
 export const maxBuyQty = (e: MarketEntry, c = ECONOMY_CONSTANTS.markets): number =>
   Math.max(0, c.maxStockMultiple * e.targetStock - e.stock);

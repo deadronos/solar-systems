@@ -3,7 +3,7 @@ import { length, vec3 } from '../../math/vec3.ts';
 import { fuelPricePerTonne } from '../core/commands.ts';
 import { sortedIds } from '../core/sortedIds.ts';
 import type { LogisticsWorld } from '../core/world.ts';
-import { askPrice, bidPrice, maxBuyQty } from '../economy/markets.ts';
+import { askPrice, maxBuyQty, projectedBidPrice } from '../economy/markets.ts';
 import { availableFunds } from '../economy/treasury.ts';
 import type { GoodId, Settlement } from '../economy/types.ts';
 import type { CompanyView, DeepReadonly } from './types.ts';
@@ -42,6 +42,25 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
     return s;
   };
   let settlementsSorted: Settlement[] | null = null;
+  // Rivals' cargo bound for each settlement, built on first use (one pass over all ships).
+  let inbound: Map<string, Partial<Record<GoodId, number>>> | null = null;
+  const buildInbound = () => {
+    const m = new Map<string, Partial<Record<GoodId, number>>>();
+    for (const ship of world.ships.values()) {
+      if (ship.companyId === companyId || !ship.plan) continue;
+      if (ship.state !== 'in_transit' && ship.state !== 'waiting') continue;
+      const to = ship.plan.toSiteId;
+      let row = m.get(to);
+      for (const g of Object.keys(ship.cargo) as GoodId[]) {
+        const q = ship.cargo[g] ?? 0;
+        if (q <= 0) continue;
+        row ??= {};
+        row[g] = (row[g] ?? 0) + q;
+      }
+      if (row) m.set(to, row);
+    }
+    return m;
+  };
 
   return {
     jd: world.jd,
@@ -80,10 +99,11 @@ export function createCompanyView(world: LogisticsWorld, companyId: string): Com
     shipClasses: () => Object.freeze([...world.shipClasses.values()].map(snapshot)),
     market: (sid, good: GoodId) => snapshot(site(sid).market[good]),
     ask: (sid, good) => askPrice(site(sid).market[good], c.markets),
-    bid: (sid, good, qty) => {
+    bid: (sid, good, qty, incomingT = 0) => {
       const s = site(sid);
-      return bidPrice(s.market[good], c.markets, availableFunds(s), qty);
+      return projectedBidPrice(s, good, c.markets, availableFunds(s), qty, incomingT);
     },
+    inbound: (sid, good) => (inbound ??= buildInbound()).get(sid)?.[good] ?? 0,
     demandRoom: (sid, good) => {
       const s = site(sid);
       return s.isDeepMarket ? Number.POSITIVE_INFINITY : maxBuyQty(s.market[good], c.markets);
