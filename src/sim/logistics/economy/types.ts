@@ -81,6 +81,11 @@ export interface SettlementDef {
   isShipyard: boolean;
   isDeepMarket: boolean;
   /**
+   * Orbit sites only: radius (km, from the body's centre) ships park at. Defaults to low orbit
+   * (`nav.lowOrbitFactor` × body radius). Departure and capture burns start here (#19).
+   */
+  parkingOrbitKm?: number;
+  /**
    * Extraction recipes (no inputs) the site's deposits allow building, besides the ones it
    * already runs. Processing recipes can be built anywhere.
    */
@@ -147,6 +152,11 @@ export interface ShipClass {
   exhaustVelocityKmS?: number;
   /** Tiers 1–4: propellant capacity (t); with the load, it sets the reachable Δv. */
   tankT?: number;
+  /**
+   * Tiers 1–2: a low-thrust drive (ion). It spirals in and out of gravity wells, paying about
+   * the circular speed at each level instead of an Oberth-assisted burn (#19).
+   */
+  lowThrust?: boolean;
   /** Tiers 3–4: engine thrust (kN). Acceleration is thrust over the trip's starting mass. */
   thrustKN?: number;
   /** Tier 4: velocity cap as a fraction of c. */

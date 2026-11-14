@@ -71,8 +71,13 @@ start + 700 days loses some population (66.5k vs 72k at year 20) without breakin
   ruled out (breaks determinism and headless runs). Original notes: straight-line brachistochrone ignores the origin/target velocity
   difference and solar gravity. Cheap first step: add `|v_target − v_origin|` to the Δv budget and
   a convergence check on the fixed-point loop.
-- **#19 Patched-conic Δv**: costs use raw v∞, not `√(v∞² + 2μ/r) − √(μ/r)` from a parking orbit;
-  matters for deep wells (Jupiter's moons). Needs a parking-orbit radius per settlement.
+- **#19 Patched-conic Δv**: done on `feat/patched-conic-dv`. Oberth burns from a parking
+  orbit (low orbit, or a station's `parkingOrbitKm`), moons through their planet's well, and
+  Edelbaum spirals for the ion clipper. Retune: NTR tank 6,000 → 8,000 t. Over 5 scenarios
+  at year 20 the fleet mix matches main within run-to-run spread, with no shortages.
+  Population is 73.2k against 74.2k (−1.4%), mostly at Ceres (−800). That gap remains with
+  the spiral off, so it comes from the Oberth costs. Leftover: find why Ceres grows slower
+  (it ends richer, with lower basic-goods satisfaction and no ice imports).
 - **#20 Rocket-equation fuel**: done on `feat/rocket-equation`, realistic (hydrolox 4.4, NTR 9,
   ion 30 km/s) with aerobraking at Earth/Mars/Venus/Titan and load-dependent torch
   acceleration. By year 20: fusion freighters carry the bulk, ion clippers the light

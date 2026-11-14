@@ -36,7 +36,8 @@ export const SHIP_CLASSES: ShipClass[] = [
     cargoT: 2_500,
     dryMassT: 900,
     exhaustVelocityKmS: 9,
-    tankT: 6_000,
+    // Sized for Earth-orbit departures, which pay to climb out of the well (#19).
+    tankT: 8_000,
     price: 140_000_000,
     upkeepPerDay: 12_000,
     buildDays: 150,
@@ -49,6 +50,7 @@ export const SHIP_CLASSES: ShipClass[] = [
     dryMassT: 150,
     exhaustVelocityKmS: 30,
     tankT: 600,
+    lowThrust: true,
     price: 50_000_000,
     upkeepPerDay: 5_000,
     buildDays: 90,

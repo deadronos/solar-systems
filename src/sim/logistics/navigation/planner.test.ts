@@ -11,8 +11,10 @@ import {
   estimateTrip,
   maxDeltaV,
   NavContext,
+  oberthDv,
   planTrip,
   propellantT,
+  spiralDv,
   sunWaypoint,
 } from './planner.ts';
 
@@ -138,10 +140,12 @@ describe('planner', () => {
     expect(days).toBeLessThan(10);
   });
 
-  it('chemical ships cannot reach Callisto (Δv budget too small)', () => {
-    expect(
-      estimateTrip(cls('chem-tug'), site('gateway'), site('callisto-outpost'), START_JD, ctx),
-    ).toBeNull();
+  it('chemical ships cannot reach Callisto with a load (Δv budget too small)', () => {
+    // Empty, a tug's 19:1 mass ratio just reaches it through Jupiter's well (#19).
+    const tug = cls('chem-tug');
+    const trip = (t: number) =>
+      estimateTrip(tug, site('gateway'), site('callisto-outpost'), START_JD, ctx, t);
+    expect(trip(tug.cargoT / 4)).toBeNull();
   });
 
   it.each([
@@ -238,6 +242,64 @@ describe('planner', () => {
       // Δv exceeds the burn alone (accel × time) by the Earth–Mars velocity difference.
       const burn = leg.kind === 'torch' ? leg.accelKmS2 * (leg.t1 - leg.t0) * 86_400 : 0;
       expect(plan!.deltaVKmS).toBeGreaterThan(burn + 1);
+    });
+  });
+
+  describe('patched-conic departure and capture (#19)', () => {
+    it('costs √(v∞² + 2μ/r) − √(μ/r) from a parking orbit', () => {
+      // LEO (≈ 6,700 km) to an Earth–Mars Hohmann v∞ of 2.95 km/s: the textbook ≈ 3.6 km/s.
+      expect(oberthDv(398_600.435, 6_697, 2.95)).toBeCloseTo(3.6, 1);
+      // Escaping from low orbit costs (√2 − 1) × circular speed; no gravity → v∞ itself.
+      const vc = Math.sqrt(398_600.435 / 6_697);
+      expect(oberthDv(398_600.435, 6_697, 0)).toBeCloseTo((Math.SQRT2 - 1) * vc, 9);
+      expect(oberthDv(0, 1, 4)).toBe(4);
+      // Fast departures gain from the Oberth effect: the burn is below v∞.
+      expect(oberthDv(398_600.435, 6_697, 10)).toBeLessThan(10);
+    });
+
+    it('departs Earth stations from low orbit', () => {
+      const gw = site('gateway');
+      expect(ctx.parkingRadius(gw)).toBeCloseTo(eph.get('earth').radiusKm * 1.05, 6);
+      expect(ctx.wellDv(gw, 2.95)).toBeCloseTo(3.6, 1);
+    });
+
+    it('a moon departs through its planet’s well, where its orbital speed helps', () => {
+      // Callisto orbits Jupiter at 8.2 km/s; a 5.6 km/s Jupiter v∞ needs only ≈ 4.7 from Callisto.
+      const ex = ctx.excessAt('callisto', 5.6);
+      expect(ex).toBeGreaterThan(4.4);
+      expect(ex).toBeLessThan(5);
+      expect(ctx.excessAt('jupiter', 5.6)).toBe(5.6);
+      // Then Callisto's own small well, from low orbit.
+      const cal = site('callisto-outpost');
+      const r = ctx.parkingRadius(cal);
+      expect(ctx.wellDv(cal, 5.6)).toBeCloseTo(oberthDv(ctx.gm('callisto'), r, ex), 9);
+    });
+
+    it('low-thrust ships spiral out of wells with no Oberth help', () => {
+      const vc = Math.sqrt(398_600.435 / 6_697);
+      expect(spiralDv(398_600.435, 6_697, 3)).toBeCloseTo(vc + 3, 9);
+      expect(spiralDv(0, 1, 3)).toBe(3);
+      const gw = site('gateway');
+      expect(ctx.wellDv(gw, 3, true)).toBeGreaterThan(ctx.wellDv(gw, 3) + 6);
+      // The ion clipper pays the spiral; the NTR the impulsive burn, on the same hop to Luna.
+      const ion = estimateTrip(cls('ion-clipper'), gw, site('luna-base'), START_JD, ctx)!;
+      const ntr = estimateTrip(cls('ntr-freighter'), gw, site('luna-base'), START_JD, ctx)!;
+      expect(cls('ion-clipper').lowThrust).toBe(true);
+      expect(ion.deltaVKmS).toBeGreaterThan(ntr.deltaVKmS + 3);
+    });
+
+    it('a higher station parking orbit changes departures and costs a same-body shift', () => {
+      const geo = { ...site('earth-exchange'), parkingOrbitKm: 42_164 };
+      const low = site('gateway');
+      // Less Oberth help up high, so a fast departure costs more; a slow one less.
+      expect(ctx.wellDv(geo, 10)).toBeGreaterThan(ctx.wellDv(low, 10));
+      expect(ctx.wellDv(geo, 0)).toBeLessThan(ctx.wellDv(low, 0));
+      // LEO → GEO Hohmann is ≈ 3.9 km/s.
+      const hop = estimateTrip(cls('chem-tug'), low, geo, START_JD, ctx)!;
+      expect(hop.deltaVKmS).toBeCloseTo(3.9, 0);
+      // Surface sites ignore the field: they always park in low orbit.
+      const mars = { ...site('mars-colony'), parkingOrbitKm: 20_000 };
+      expect(ctx.parkingRadius(mars)).toBe(ctx.parkingRadius(site('mars-colony')));
     });
   });
 

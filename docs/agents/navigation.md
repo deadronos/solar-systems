@@ -37,13 +37,28 @@ this before changing `src/sim/logistics/navigation/*` or ship classes.
   Exhaust velocities are physical for tiers 1–2 (hydrolox 4.4, NTR 9, ion 30 km/s), so
   chemical ships work Earth–Moon and Mars–Phobos or fly light. NTR and ion carry mid-range
   freight, and fusion carries interplanetary bulk.
-- **Surface sites** add ascent and descent Δv of `nav.surfaceDvFactor` × circular speed
-  and hold legs of `nav.surfaceLegDays` (default 1.2× and 6 hours).
+- **Patched conics (#19):** the Lambert grid gives hyperbolic excess speeds (v∞) relative to
+  each end's Sun-orbiting primary. Departure and capture burns start from the settlement's
+  parking orbit: √(v∞² + 2μ/r) − √(μ/r) (`oberthDv`, `NavContext.wellDv`). Orbit sites park
+  at their `parkingOrbitKm`, else low orbit (`nav.lowOrbitFactor` × radius). Surface sites
+  always park in low orbit. From LEO, an Earth–Mars Hohmann v∞ of 2.95 km/s costs ≈ 3.6 km/s,
+  and fast departures cost less than their v∞.
+- **Moons** depart and capture through their planet's well: the Oberth formula at the moon's
+  orbital radius turns the planet-relative v∞ into a moon-relative one (`excessAt`), then
+  the moon's own well applies. Callisto's 8.2 km/s orbit around Jupiter makes it cheaper to
+  leave than v∞ alone. Local hops in one planet system turn Hohmann burns at a moon the same way.
+- **Low-thrust ships** (`ShipClass.lowThrust`, the ion clipper) spiral instead: each well
+  level costs its circular speed plus v∞ (`spiralDv`, Edelbaum), and a transfer between two
+  circular orbits costs |Δ circular speed|. Leaving LEO costs an ion ship ≈ 7.7 km/s more.
+- **Surface sites** add ascent and descent Δv between the surface and low orbit of
+  `nav.surfaceDvFactor` × circular speed and hold legs of `nav.surfaceLegDays` (default 1.2×
+  and 6 hours).
 - **Aerobraking:** arrivals at a body in `nav.aerobrakeBodies` (Earth, Mars, Venus, Titan),
   whether from another planet or from a moon down to its planet, pay `nav.aerobrakeKmS`
   (0.5 km/s) instead of the capture burn and the powered descent. Ascent is always powered.
 - **Same-body hops** (orbit ↔ surface, station ↔ station) are a docking hold of
-  `nav.sameBodyDays` (default 12 hours).
+  `nav.sameBodyDays` (default 12 hours), plus a Hohmann transfer (or spiral) when the two
+  sites park at different radii.
 - `nav.lowOrbitFactor` sets the local transfer parking radius relative to the body radius.
   `nav.planningFuelPrice` is the fuel price the window scoring assumes.
 
@@ -57,9 +72,12 @@ The renderer samples it once per plan. Plans are plain data and are mirrored to 
 
 ## Known simplifications (documented, not drift)
 
-- **Transfer Δv** counts hyperbolic-excess differences only, with no parking-orbit
-  escape or capture (Oberth) (#19).
-- **Ion** ships are flown as impulsive Lambert transfers, not low-thrust spirals.
+- **Ion** ships are flown as impulsive Lambert transfers between the planets. Their escape
+  and capture spirals cost Δv but take no extra time.
+- **Patched conics** assume each escape or capture burn is aligned with the best direction
+  (no phasing or plane-change cost), and moon orbits are taken as circular at their
+  semi-major axis.
+- **Torch** trips (tiers 3–4) pay no well escape or capture: a few percent of their Δv at most.
 - **Torch flights** ignore solar gravity (at most 2% of the weakest torch's thrust outside
   the keep-out sphere), and velocity matching adds Δv but no time. The detour waypoint makes
   a sharp corner rather than a curve.
