@@ -42,7 +42,9 @@ Never write to the sim from the UI except through its public control API (`clock
   belts, stars), `minPixelRadius`.
 - `useSelectionStore`:
   - `selected` (`EntityRef { kind, id }`), with back/forward history capped at 50;
-  - `follow`, `companyFilter` and map `overlays`.
+  - `follow`, `companyFilter` and map `overlays`;
+  - `hoveredShip`: the ship under the pointer in the scene, set by `ShipLayer` on pointer
+    moves when it changes (it shows that ship's label).
 - Cross-store actions live in `state/actions.ts`. For example, `focusBody` clears follow, sets
   focus and selects. Use these actions rather than poking two stores from a component.
 - Stores hold UI state only. Never copy simulation entities into them; store ids.

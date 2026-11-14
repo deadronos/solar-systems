@@ -1,147 +1,295 @@
 import { useFrame } from '@react-three/fiber';
-import { useEffect, useMemo, useRef } from 'react';
-import { BufferAttribute, BufferGeometry, Line, LineBasicMaterial } from 'three';
-import { vec3 } from '../../sim/index.ts';
+import { useEffect, useRef } from 'react';
 import {
-  evaluatePlan,
-  type LogisticsWorld,
-  type TrajectoryPlan,
-} from '../../sim/logistics/index.ts';
+  BufferAttribute,
+  BufferGeometry,
+  Color,
+  DataTexture,
+  FloatType,
+  LineBasicMaterial,
+  LineSegments,
+  NearestFilter,
+  RGBAFormat,
+  Vector3,
+  type Group,
+} from 'three';
+import { vec3, type Simulation, type Vec3 } from '../../sim/index.ts';
+import { evaluatePlan, type TrajectoryPlan } from '../../sim/logistics/index.ts';
 import { useSelectionStore } from '../../state/selectionStore.ts';
 import { relativeToScene, UNITS_PER_KM } from '../coords.ts';
 import { useRenderFrame, useSimulation } from '../SimulationContext.tsx';
 import { PRIORITY_SCENE } from '../scene/SimDriver.tsx';
-import { usePolledKeyed } from './usePolled.ts';
 
 const SAMPLES = 256;
-const PAST_DIM = 0.25;
-
-/** Ships whose planned paths are drawn: the selected ship, plus all (filtered) ships in flight. */
-function visibleIds(world: LogisticsWorld): string[] {
-  const { selected, overlays, companyFilter } = useSelectionStore.getState();
-  const ids = new Set<string>();
-  if (selected?.kind === 'ship' && world.ships.get(selected.id)?.plan) ids.add(selected.id);
-  if (overlays.allTrajectories) {
-    for (const s of world.ships.values()) {
-      if (s.plan && (!companyFilter || s.companyId === companyFilter)) ids.add(s.id);
-    }
-  }
-  return [...ids].toSorted();
-}
-
-export function TrajectoryLayer() {
-  const sim = useSimulation();
-  const world = sim.logistics;
-  const ids = usePolledKeyed(
-    () => (world ? visibleIds(world) : []),
-    (v) => v.join(','),
-    4,
-  );
-  if (!world) return null;
-  return (
-    <>
-      {ids.map((id) => (
-        <Trajectory key={id} shipId={id} />
-      ))}
-    </>
-  );
-}
+/** Vertices per trajectory: one segment (two vertices) between consecutive samples. */
+const VERTS = (SAMPLES - 1) * 2;
+const INITIAL_SLOTS = 64;
+/** Brightness of the flown part right behind the ship, and far behind it. */
+const TRAIL_NEAR = 0.7;
+const TRAIL_FAR = 0.12;
+/** The trail fades over this fraction of the trip. */
+const TRAIL_SPAN = 0.4;
 
 /**
- * Identity of a plan by value: the economy may live in a worker, in which case every update
- * brings a fresh copy of the same plan.
+ * Identity of a plan by value: in worker mode a ship that changes in any way (its stats tick
+ * daily) arrives as a fresh copy carrying a fresh copy of the same plan.
  */
 const planKey = (p: TrajectoryPlan) => `${p.fromSiteId}>${p.toSiteId}@${p.departJd}/${p.arriveJd}`;
 
+interface Slot {
+  index: number;
+  key: string;
+  departJd: number;
+  arriveJd: number;
+  /** Heliocentric km of the first sample: positions are stored relative to it. */
+  anchor: Vec3;
+  /** Frame on which the ship was last visible. */
+  seen: number;
+}
+
 /**
- * A line material that dims the part of the path already flown on the GPU: each vertex
- * carries its time (days after departure) and `uNow` is the clock, so the CPU only sets two
- * uniforms per frame.
+ * The shader reads per-trajectory state from a 2-row float texture, one column per slot:
+ * row 0 = anchor relative to the floating origin (scene units) and trip progress (0..1),
+ * row 1 = company colour and visibility. The CPU writes `slots × 8` floats per frame.
  */
-function trajectoryMaterial(): { material: LineBasicMaterial; uNow: { value: number } } {
-  const uNow = { value: 0 };
+function trajectoryMaterial(slots: DataTexture): LineBasicMaterial {
   const material = new LineBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false });
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uNow = uNow;
+    shader.uniforms.uSlots = { value: slots };
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
-        '#include <common>\nattribute float aTime;\nuniform float uNow;\nvarying float vPast;',
+        `#include <common>
+        attribute float aFrac;
+        attribute float aSlot;
+        uniform sampler2D uSlots;
+        varying float vLag;
+        varying float vVis;
+        varying vec3 vTrajColor;`,
       )
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPast = step(aTime, uNow);');
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vec4 slotA = texelFetch(uSlots, ivec2(int(aSlot), 0), 0);
+        vec4 slotB = texelFetch(uSlots, ivec2(int(aSlot), 1), 0);
+        transformed += slotA.xyz;
+        vLag = slotA.w - aFrac;
+        vVis = slotB.a;
+        vTrajColor = slotB.rgb;`,
+      );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vPast;')
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying float vLag;
+        varying float vVis;
+        varying vec3 vTrajColor;`,
+      )
       .replace(
         'vec4 diffuseColor = vec4( diffuse, opacity );',
-        `vec4 diffuseColor = vec4( diffuse * mix( 1.0, ${PAST_DIM.toFixed(2)}, vPast ), opacity );`,
+        `if (vVis < 0.5) discard;
+        // Ahead of the ship: full colour. Behind it: a trail that fades with distance.
+        float trail = mix(${TRAIL_NEAR.toFixed(2)}, ${TRAIL_FAR.toFixed(2)},
+          smoothstep(0.0, ${TRAIL_SPAN.toFixed(2)}, vLag));
+        vec4 diffuseColor = vec4( vTrajColor * (vLag > 0.0 ? trail : 1.0), opacity );`,
       );
   };
-  material.customProgramCacheKey = () => 'trajectory';
-  material.userData.uNow = uNow;
-  return { material, uNow };
+  material.customProgramCacheKey = () => 'trajectory-batch';
+  return material;
 }
 
-function Trajectory({ shipId }: { shipId: string }) {
+/** Geometry, slot texture and material for `capacity` trajectories. */
+function createBatch(capacity: number) {
+  const g = new BufferGeometry();
+  const frac = new Float32Array(capacity * VERTS);
+  const slot = new Float32Array(capacity * VERTS);
+  for (let s = 0; s < capacity; s++) {
+    for (let k = 0; k < SAMPLES - 1; k++) {
+      const v = s * VERTS + k * 2;
+      frac[v] = k / (SAMPLES - 1);
+      frac[v + 1] = (k + 1) / (SAMPLES - 1);
+      slot[v] = slot[v + 1] = s;
+    }
+  }
+  g.setAttribute('position', new BufferAttribute(new Float32Array(capacity * VERTS * 3), 3));
+  g.setAttribute('aFrac', new BufferAttribute(frac, 1));
+  g.setAttribute('aSlot', new BufferAttribute(slot, 1));
+  g.setDrawRange(0, 0);
+  const texture = new DataTexture(
+    new Float32Array(capacity * 2 * 4),
+    capacity,
+    2,
+    RGBAFormat,
+    FloatType,
+  );
+  texture.magFilter = texture.minFilter = NearestFilter;
+  texture.needsUpdate = true;
+  const lines = new LineSegments(g, trajectoryMaterial(texture));
+  lines.frustumCulled = false;
+  return {
+    capacity,
+    lines,
+    texture,
+    slots: new Map<string, Slot>(),
+    free: Array.from({ length: capacity }, (_, i) => capacity - 1 - i),
+    dispose() {
+      g.dispose();
+      texture.dispose();
+      (lines.material as LineBasicMaterial).dispose();
+    },
+  };
+}
+type Batch = ReturnType<typeof createBatch>;
+
+const sample = vec3();
+const color = new Color();
+const anchorScene = new Vector3();
+
+function writeColor(b: Batch, slot: Slot, hex: string): void {
+  color.set(hex);
+  const t = b.texture.image.data as Float32Array;
+  const c = (b.capacity + slot.index) * 4;
+  t[c] = color.r;
+  t[c + 1] = color.g;
+  t[c + 2] = color.b;
+}
+
+/** Write a plan's samples into its slot, relative to its first sample (float64 → float32). */
+function upload(b: Batch, slot: Slot, plan: TrajectoryPlan, eph: Simulation['ephemeris']) {
+  const pos = b.lines.geometry.attributes.position as BufferAttribute;
+  const pa = pos.array as Float32Array;
+  const base = slot.index * VERTS * 3;
+  let px = 0;
+  let py = 0;
+  let pz = 0;
+  for (let i = 0; i < SAMPLES; i++) {
+    const t = plan.departJd + ((plan.arriveJd - plan.departJd) * i) / (SAMPLES - 1);
+    evaluatePlan(plan, t, eph, sample);
+    if (i === 0) Object.assign(slot.anchor, sample);
+    // Ecliptic (x, y, z) → scene (x, z, −y), in scene units.
+    const x = (sample.x - slot.anchor.x) * UNITS_PER_KM;
+    const y = (sample.z - slot.anchor.z) * UNITS_PER_KM;
+    const z = -(sample.y - slot.anchor.y) * UNITS_PER_KM;
+    if (i > 0) {
+      const v = base + (i - 1) * 6;
+      pa[v] = px;
+      pa[v + 1] = py;
+      pa[v + 2] = pz;
+      pa[v + 3] = x;
+      pa[v + 4] = y;
+      pa[v + 5] = z;
+    }
+    px = x;
+    py = y;
+    pz = z;
+  }
+  pos.addUpdateRange(base, VERTS * 3);
+  pos.needsUpdate = true;
+}
+
+/**
+ * Planned paths of the selected ship, plus every (filtered) ship in flight when "all routes"
+ * is on, as one `LineSegments` draw call. Each plan is uploaded once into a fixed slot; per
+ * frame the CPU only rewrites the slot texture (anchor and progress per trajectory).
+ */
+export function TrajectoryLayer() {
   const sim = useSimulation();
   const frame = useRenderFrame();
-  const line = useMemo(() => {
-    const g = new BufferGeometry();
-    g.setAttribute('position', new BufferAttribute(new Float32Array(SAMPLES * 3), 3));
-    g.setAttribute('aTime', new BufferAttribute(new Float32Array(SAMPLES), 1));
-    const l = new Line(g, trajectoryMaterial().material);
-    l.frustumCulled = false;
-    return l;
-  }, []);
+  const group = useRef<Group>(null);
+  const batch = useRef<Batch | null>(null);
+  const frameNo = useRef(0);
+
   useEffect(
     () => () => {
-      line.geometry.dispose();
-      (line.material as LineBasicMaterial).dispose();
+      batch.current?.lines.removeFromParent();
+      batch.current?.dispose();
+      batch.current = null;
     },
-    [line],
+    [],
   );
-  const ref = useRef<Line>(null);
-  /** Plan currently uploaded, and its heliocentric anchor (km; the first sample). */
-  const state = useRef({ key: '', departJd: 0, anchor: vec3() });
 
   useFrame(() => {
-    const l = ref.current;
     const world = sim.logistics;
-    const ship = world?.ships.get(shipId);
-    if (!l || !ship?.plan) {
-      if (l) l.visible = false;
-      return;
+    if (!world || !group.current) return;
+    if (!batch.current) {
+      batch.current = createBatch(INITIAL_SLOTS);
+      group.current.add(batch.current.lines);
     }
-    l.visible = true;
-    const plan = ship.plan;
-    const s = state.current;
-    const key = planKey(plan);
-    if (s.key !== key) {
-      // Upload once per plan: float64 samples relative to the anchor, then float32.
-      s.key = key;
-      s.departJd = plan.departJd;
-      const pos = l.geometry.attributes.position as BufferAttribute;
-      const time = l.geometry.attributes.aTime as BufferAttribute;
-      const pa = pos.array as Float32Array;
-      const ta = time.array as Float32Array;
-      const p = vec3();
-      for (let i = 0; i < SAMPLES; i++) {
-        const t = plan.departJd + ((plan.arriveJd - plan.departJd) * i) / (SAMPLES - 1);
-        evaluatePlan(plan, t, sim.ephemeris, p);
-        if (i === 0) Object.assign(s.anchor, p);
-        // Ecliptic (x, y, z) → scene (x, z, −y), in scene units.
-        pa[i * 3] = (p.x - s.anchor.x) * UNITS_PER_KM;
-        pa[i * 3 + 1] = (p.z - s.anchor.z) * UNITS_PER_KM;
-        pa[i * 3 + 2] = -(p.y - s.anchor.y) * UNITS_PER_KM;
-        ta[i] = t - plan.departJd;
-      }
-      pos.needsUpdate = true;
-      time.needsUpdate = true;
-      const company = world!.companies.get(ship.companyId);
-      (l.material as LineBasicMaterial).color.set(company?.color ?? '#ffffff');
-    }
-    relativeToScene(s.anchor, frame.origin, l.position);
-    (l.material as LineBasicMaterial).userData.uNow.value = sim.clock.jd - s.departJd;
+    frameNo.current++;
+    batch.current = update(batch.current, group.current, sim, frame.origin, frameNo.current);
   }, PRIORITY_SCENE);
 
-  return <primitive ref={ref} object={line} />;
+  return <group ref={group} />;
+}
+
+/** One frame: (re)assign slots, upload changed plans, write the slot texture. */
+function update(b: Batch, group: Group, sim: Simulation, origin: Vec3, now: number): Batch {
+  const world = sim.logistics!;
+  const { selected, overlays, companyFilter } = useSelectionStore.getState();
+  const selectedShip = selected?.kind === 'ship' ? selected.id : null;
+
+  // Assign slots to visible trajectories; upload new or changed plans.
+  for (const ship of world.ships.values()) {
+    const plan = ship.plan;
+    if (!plan) continue;
+    const visible =
+      ship.id === selectedShip ||
+      (overlays.allTrajectories && (!companyFilter || ship.companyId === companyFilter));
+    if (!visible) continue;
+    let slot = b.slots.get(ship.id);
+    if (!slot) {
+      if (b.free.length === 0) b = grow(b, group);
+      slot = { index: b.free.pop()!, key: '', departJd: 0, arriveJd: 0, anchor: vec3(), seen: 0 };
+      b.slots.set(ship.id, slot);
+    }
+    slot.seen = now;
+    const key = planKey(plan);
+    if (slot.key !== key) {
+      slot.key = key;
+      slot.departJd = plan.departJd;
+      slot.arriveJd = plan.arriveJd;
+      upload(b, slot, plan, sim.ephemeris);
+      writeColor(b, slot, world.companies.get(ship.companyId)?.color ?? '#ffffff');
+    }
+  }
+
+  // Per-frame slot state; free slots whose ship is no longer shown.
+  const t = b.texture.image.data as Float32Array;
+  const jd = sim.clock.jd;
+  let top = 0;
+  for (const [id, slot] of b.slots) {
+    const row1 = (b.capacity + slot.index) * 4;
+    if (slot.seen !== now) {
+      t[row1 + 3] = 0;
+      b.slots.delete(id);
+      b.free.push(slot.index);
+      continue;
+    }
+    relativeToScene(slot.anchor, origin, anchorScene);
+    const row0 = slot.index * 4;
+    t[row0] = anchorScene.x;
+    t[row0 + 1] = anchorScene.y;
+    t[row0 + 2] = anchorScene.z;
+    t[row0 + 3] = (jd - slot.departJd) / Math.max(slot.arriveJd - slot.departJd, 1e-9);
+    t[row1 + 3] = 1;
+    top = Math.max(top, slot.index + 1);
+  }
+  b.texture.needsUpdate = true;
+  b.lines.geometry.setDrawRange(0, top * VERTS);
+  return b;
+}
+
+/** Replace a full batch with one twice the size; plans re-upload on the next pass. */
+function grow(old: Batch, group: Group): Batch {
+  const b = createBatch(old.capacity * 2);
+  group.remove(old.lines);
+  group.add(b.lines);
+  old.dispose();
+  // Keep slot numbers: they are all below the old capacity.
+  b.free = b.free.filter((i) => i >= old.capacity);
+  for (const [id, slot] of old.slots) {
+    slot.key = '';
+    b.slots.set(id, slot);
+  }
+  return b;
 }

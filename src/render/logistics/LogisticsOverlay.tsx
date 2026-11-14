@@ -7,13 +7,14 @@ import { usePolledKeyed } from './usePolled.ts';
 export const shipLabelKey = (id: string) => `ship:${id}`;
 export const settlementLabelKey = (id: string) => `settlement:${id}`;
 
-const shipIds = (w: LogisticsWorld) => [...w.ships.keys()].toSorted();
 const isSel = (sel: EntityRef | null, kind: EntityRef['kind'], id: string) =>
   sel?.kind === kind && sel.id === id;
 
 /**
- * DOM markers for settlements and ships (positioned every frame by the scene layers via the
- * shared label registry). Clicking selects; double-clicking selects and follows.
+ * DOM markers for settlements, and labels for the selected and hovered ship (positioned every
+ * frame by the scene layers via the shared label registry). Every other ship is a point drawn
+ * by `ShipLayer`, which also picks ships under the pointer. Clicking selects; double-clicking
+ * selects and follows.
  */
 export function LogisticsOverlay() {
   const sim = useSimulation();
@@ -23,10 +24,16 @@ export function LogisticsOverlay() {
 }
 
 function Markers({ world }: { world: LogisticsWorld }) {
-  const ids = usePolledKeyed(
-    () => shipIds(world),
+  const selectedShip = useSelectionStore((s) =>
+    s.selected?.kind === 'ship' ? s.selected.id : null,
+  );
+  const hoveredShip = useSelectionStore((s) => s.hoveredShip);
+  // Re-render when a labelled ship appears or goes (it may not exist yet in the replica).
+  usePolledKeyed(
+    () => [selectedShip, hoveredShip].filter((id) => id && world.ships.has(id)),
     (v) => v.join(','),
   );
+  const ids = [...new Set([selectedShip, hoveredShip])].filter((id) => id !== null);
   const settlements = [...world.settlements.values()];
   return (
     <div className="label-layer" aria-label="Logistics markers">
@@ -48,6 +55,7 @@ function Markers({ world }: { world: LogisticsWorld }) {
             key={id}
             refTo={{ kind: 'ship', id }}
             labelKey={shipLabelKey(id)}
+            hovered={id === hoveredShip}
             title={`${ship.name} — ${company?.name ?? ''}`}
           >
             <span
@@ -66,11 +74,13 @@ function Marker({
   refTo,
   labelKey,
   title,
+  hovered = false,
   children,
 }: {
   refTo: EntityRef;
   labelKey: string;
   title?: string;
+  hovered?: boolean;
   children: React.ReactNode;
 }) {
   const frame = useRenderFrame();
@@ -81,7 +91,7 @@ function Marker({
     <button
       type="button"
       title={title}
-      className={`marker marker--${refTo.kind} ${selected ? 'marker--selected' : ''}`}
+      className={`marker marker--${refTo.kind} ${selected ? 'marker--selected' : ''} ${hovered ? 'marker--hovered' : ''}`}
       style={{ visibility: 'hidden' }}
       ref={(el) => {
         if (!el) return;

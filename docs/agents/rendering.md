@@ -18,7 +18,8 @@ Scene structure and the patterns every scene component follows. Read this before
 - `SimDriver` and `CameraRig`;
 - an ambient light and the `Starfield`;
 - one `Body` and one `OrbitPath` per catalog body, and one `BeltPoints` per belt;
-- with an economy: `MarkerLayer`, `TrajectoryLayer` and `TradeFlowLayer`.
+- with an economy: `MarkerLayer` (settlements), `ShipLayer`, `TrajectoryLayer` and
+  `TradeFlowLayer`.
 
 ## Per-frame pattern (follow this exactly)
 
@@ -63,6 +64,22 @@ Scene structure and the patterns every scene component follows. Read this before
   Trajectories upload positions relative to an anchor sample and dim by `aTime` (days after
   departure) against `uNow`.
 - If GLSL has a JS mirror (`solveKeplerFixed`), keep the two in sync. A test checks the mirror.
+- **Ships** (`ShipLayer`) are one `Points` draw: a diamond per ship in its company colour,
+  `depthTest` off so docked ships show over their body. Each frame writes the visible ships'
+  positions (relative to the origin, so float32 is exact enough) and colours into the first
+  `n` points. Docked and waiting ships fan out sideways by a pixel offset converted with
+  `pixelsPerUnit`. Capacity doubles when the fleet outgrows it.
+- **Ship picking** is on the CPU: `pickNearest` (`shipPicking.ts`) projects the drawn points
+  and takes the nearest within 8 px. `ShipLayer` listens on the canvas itself, so a ship hit
+  stops the event before R3F's body `onClick` on the wrapper. A press that moves over 4 px is
+  a camera drag. Pointer moves set `hoveredShip` (only when it changes) and the cursor.
+- **Trajectories** (`TrajectoryLayer`) are one `LineSegments` draw. Each shown plan owns a
+  slot of 255 segments, uploaded once per `planKey` relative to its first sample (as before).
+  A 2-row float `DataTexture` holds per-slot state, read with `texelFetch` via the static
+  `aSlot` attribute: row 0 is the anchor relative to the floating origin plus trip progress,
+  row 1 is the company colour plus visibility. Per frame the CPU rewrites only that texture.
+  Ahead of the ship the path has full colour. Behind it a trail fades from 0.7 to 0.12 over
+  40 % of the trip (the static `aFrac` attribute against the progress).
 - Orbit lines (`OrbitPath`) are `Line2`/`LineMaterial` fat lines (1.5 CSS px; set
   `material.resolution` to the canvas size each frame). Each segment endpoint carries its
   eccentric anomaly as a fraction of a turn, and `uBodyPhase` (from
@@ -71,8 +88,10 @@ Scene structure and the patterns every scene component follows. Read this before
 
 ## DOM labels and markers
 
-Body labels (`LabelOverlay`), settlement and ship markers (`LogisticsOverlay`) are DOM buttons
-in one absolutely positioned layer:
+Body labels (`LabelOverlay`), settlement markers and the labels of the selected and hovered
+ship (`LogisticsOverlay`) are DOM buttons in one absolutely positioned layer. Every other ship
+is only a point (see GPU work). A hover-only label has `pointer-events: none`, so the pointer
+stays on the canvas that picks the ship:
 
 - React renders them once and registers each element in `frame.labels` under a key: the body
   id, `settlementLabelKey(id)` or `shipLabelKey(id)`.
@@ -88,5 +107,4 @@ over 1.4 s.
 
 ## Known gaps
 
-- One DOM marker and one `Line` per ship doesn't scale to large fleets (#27).
-- Visual polish backlog (atmospheres, constellation lines, trajectory fades) is in umbrella #9.
+- Visual polish backlog (atmospheres, constellation lines) is in umbrella #9.

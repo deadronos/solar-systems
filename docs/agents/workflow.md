@@ -31,7 +31,8 @@ pnpm build          # tsc -b && vite build
 ```
 
 Add `?economy=inline` to the dev URL to run the economy on the main thread instead of the Web
-Worker (useful when debugging with breakpoints).
+Worker (useful when debugging with breakpoints). Add `?fleet=300` to start with about 300 ships
+(`withFleetSize` repeats each company's starting fleet) for rendering and sync benchmarks.
 
 ## Scratch experiments
 

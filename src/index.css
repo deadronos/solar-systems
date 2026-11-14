@@ -355,8 +355,14 @@ button {
 }
 
 .marker--ship:hover .ship-marker__name,
+.marker--hovered .ship-marker__name,
 .marker--selected .ship-marker__name {
   display: inline;
+}
+
+/* A hover label only names the ship: the pointer stays on the canvas, which picks it. */
+.marker--hovered:not(.marker--selected) {
+  pointer-events: none;
 }
 
 .marker--selected .ship-marker {

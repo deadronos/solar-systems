@@ -88,12 +88,15 @@ start + 700 days loses some population (66.5k vs 72k at year 20) without breakin
 
 ## 3. Performance (#7)
 
-- **#25 Worker deltas**: every delta resends all entity tables 20×/s and the replica replaces
-  every object. Option: per-entity dirty tracking with version counters, and apply only the
-  latest table snapshot per frame.
-- **#27 Batched ships and trajectories**: one DOM marker and one `Line` per ship. Option: one
-  `InstancedMesh`/`Points` for ships and one `LineSegments` for all trajectories. Fold in the
-  orbit-style trailing fade for trajectories (left over from #36).
+Done on `perf/batched-sync-and-render`:
+
+- **#25 Worker deltas**: per-entity diffs (JSON signature against the last send), so unchanged
+  entities keep their replica object. A one-day delta at year 20 is 121 KB, down from 210 KB.
+  Leftover: ships are resent every tick because `stats`/`busyDays` tick. Splitting those out
+  would cut most of the rest.
+- **#27 Batched ships and trajectories**: one `Points` for ships with CPU picking, DOM labels
+  only for the selected or hovered ship, and one `LineSegments` for all trajectories with a
+  slot texture and a trailing fade. `?fleet=300` is the benchmark scenario.
 
 ## 4. Visuals (#9)
 
@@ -112,4 +115,3 @@ start + 700 days loses some population (66.5k vs 72k at year 20) without breakin
 
 - Most impact: #19 (parking-orbit Δv; it raises departure Δv, so recheck balance), then #25.
 - Contained physics win: the cheap first step of #21.
-- Scaling: #25 before large fleets, then #27.
