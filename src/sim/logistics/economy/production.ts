@@ -1,6 +1,7 @@
 import type { LogisticsWorld } from '../core/world.ts';
-import { addDemand, addSupply } from './markets.ts';
-import type { Facility, GoodId, Settlement } from './types.ts';
+import { sortedIds } from '../core/sortedIds.ts';
+import { addDemand, addSupply, askPrice, bidPrice } from './markets.ts';
+import type { Facility, GoodId, Recipe, Settlement } from './types.ts';
 
 const producesSurvival = (world: LogisticsWorld, recipeId: string): boolean =>
   world.recipes
@@ -39,12 +40,18 @@ export function runProduction(s: Settlement, world: LogisticsWorld, dtDays: numb
   const k = Math.min(1, dtDays / world.constants.population.satisfactionEmaDays);
   let workers = workforce;
   const reserve = lifeSupportReserve(s, world);
+  const prices = unitPrices(s, world);
   // Life support first: recipes that output survival goods get workers and inputs first.
   for (const f of survivalFirstOrder(s, world)) {
     const recipe = world.recipes.get(f.recipeId);
     if (!recipe) continue;
     // Industry may only use what life support doesn't need (water → fuel, ice → fuel).
     const lifeSupport = producesSurvival(world, f.recipeId);
+    // Industry idles, and stops asking for inputs, while its output is worth less than them.
+    if (!lifeSupport && !pays(recipe, prices)) {
+      f.utilisation = f.utilisation === undefined ? 0 : f.utilisation * (1 - k);
+      continue;
+    }
     const usable = (good: GoodId) =>
       lifeSupport
         ? s.market[good].stock
@@ -75,6 +82,45 @@ export function runProduction(s: Settlement, world: LogisticsWorld, dtDays: numb
   s.idleWorkers = Math.max(0, workers);
   maintain(s, world, workforce - workers, dtDays);
 }
+
+interface UnitPrices {
+  input: (good: GoodId) => number;
+  output: (good: GoodId) => number;
+}
+
+/**
+ * What a tonne of each good costs as an input and fetches as output. Inputs cost the local
+ * price, or the ask of a deep market on the same body if that is dearer: that is where the
+ * local shuttle buys them. Output fetches the best of the local price, that deep market's bid
+ * and an Earth export netback. Without this, Gateway ran a water → fuel plant on water bought
+ * from Earth until its own buying drove Earth's water price above what the fuel sold for, and
+ * kept running it at a loss until the station could no longer buy food.
+ */
+function unitPrices(s: Settlement, world: LogisticsWorld): UnitPrices {
+  const c = world.constants.markets;
+  let deep: Settlement | null = null;
+  let earth: Settlement | null = null;
+  for (const id of sortedIds(world.settlements)) {
+    const o = world.settlements.get(id)!;
+    if (!o.isDeepMarket) continue;
+    earth ??= o;
+    if (o.site.bodyId === s.site.bodyId) deep ??= o;
+  }
+  const netback = world.constants.industry.exportNetback;
+  return {
+    input: (g) => Math.max(s.market[g].price, deep ? askPrice(deep.market[g], c) : 0),
+    output: (g) =>
+      Math.max(
+        s.market[g].price,
+        deep ? bidPrice(deep.market[g], c, Number.POSITIVE_INFINITY, 0) : 0,
+        earth ? earth.market[g].price * netback : 0,
+      ),
+  };
+}
+
+const pays = (recipe: Recipe, p: UnitPrices): boolean =>
+  recipe.outputs.reduce((a, o) => a + o.qty * p.output(o.good), 0) >=
+  recipe.inputs.reduce((a, i) => a + i.qty * p.input(i.good), 0);
 
 /**
  * Stock industry must leave alone: `survivalInputReserveDays` of the people's survival needs

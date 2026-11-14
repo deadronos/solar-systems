@@ -121,6 +121,13 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
 - **Production** (`production.ts`): life-support recipes get workers and inputs first.
   Output is limited by capacity, workers and input stock. Nominal input demand is recorded
   even when inputs are missing, so shortages show up as prices.
+  - **Profitability gate:** a recipe that makes no survival good runs only while its
+    outputs are worth at least its inputs. Inputs cost the local price, or the ask of a deep
+    market on the same body if dearer (where the local shuttle buys). Outputs fetch the best
+    of the local price, that deep market's bid and the Earth price × `industry.exportNetback`.
+    A gated facility records no input demand, so it stops pulling imports. Without it, Gateway
+    ran water → fuel on Earth water until its own buying pushed Earth's water price past what
+    the fuel fetched, and bankrupted itself.
   - **Life-support reserve:** other recipes may only use stock above
     `industry.survivalInputReserveDays` of the people's survival needs plus the inputs local
     life support uses at capacity (water → fuel, ice → fuel), and record demand only for what
