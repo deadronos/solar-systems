@@ -79,7 +79,7 @@ The renderer samples it once per plan. Plans are plain data and are mirrored to 
   semi-major axis.
 - **Torch** trips (tiers 3–4) pay no well escape or capture: a few percent of their Δv at most.
 - **Torch flights** ignore solar gravity (at most 2% of the weakest torch's thrust outside
-  the keep-out sphere), and velocity matching adds Δv but no time. The detour waypoint makes
-  a sharp corner rather than a curve.
+  the keep-out sphere), and velocity matching adds Δv but no time. The detour waypoint is placed so
+  both segments clear the keep-out radius. The waypoint still makes a sharp corner.
 
 Treat these as the current spec. If you fix one, update this section and the issue.
