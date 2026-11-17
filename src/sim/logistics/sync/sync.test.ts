@@ -138,20 +138,31 @@ describe('economy worker', () => {
     expect(sim.logistics!.jd).toBeGreaterThan(DEFAULT_SCENARIO.startJd);
   });
 
-  it('reports a worker that fails after starting', () => {
+  it('applies the last queued delta and freezes time after a worker failure', () => {
     const fake = fakeWorker();
     const sim = new Simulation({
       scenario: DEFAULT_SCENARIO,
       economy: 'worker',
       spawnWorker: () => fake.port,
+      rate: 31_557_600,
     });
     sim.step(0.1);
     fake.pump();
-    sim.step(0.1);
+    const lastTarget = sim.clock.jd;
     fake.port.fail('boom');
     sim.step(0.1);
     expect(sim.economyMode).toBe('worker');
     expect(sim.economyError).toBe('boom');
+    const expectedDay =
+      DEFAULT_SCENARIO.startJd + Math.floor((lastTarget - DEFAULT_SCENARIO.startJd) * 4) / 4;
+    expect(sim.logistics!.jd).toBe(expectedDay);
+    expect(sim.clock.jd).toBe(expectedDay);
+    expect(sim.clock.paused).toBe(true);
+    expect(sim.lagDays).toBe(0);
+    sim.clock.setPaused(false);
+    sim.step(0.25);
+    expect(sim.clock.jd).toBe(expectedDay);
+    expect(sim.clock.paused).toBe(true);
   });
 });
 

@@ -119,10 +119,18 @@ export class Simulation {
         this.clock.setRate(MAX_RATE_SECONDS_PER_SECOND);
       if (this.clock.jd < eco.jd) this.clock.syncTo(eco.jd);
     }
-    this.clock.tick(realDtSeconds);
+    if (!eco?.failure) this.clock.tick(realDtSeconds);
     if (eco) {
       eco.advance(this.clock.jd);
       this.economyError = eco.failure;
+      if (eco.failure && eco.started) {
+        this.clock.syncTo(eco.jd);
+        if (!this.clock.paused) this.clock.setPaused(true);
+        this.lagDays = 0;
+        this.achievedRate = 0;
+        this.ephemeris.update(eco.jd);
+        return;
+      }
       const maxLag =
         eco.kind === 'worker'
           ? Math.max(MAX_LAG_DAYS, (Math.abs(this.clock.rate) * WORKER_LAG_SECONDS) / 86_400)
