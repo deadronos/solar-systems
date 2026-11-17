@@ -14,6 +14,9 @@ export interface TableDelta<T> {
   ids: string[] | null;
 }
 
+type ShipFields = Omit<Ship, 'plan'>;
+type ShipPlanChange = { id: string; plan: Ship['plan'] };
+
 /**
  * Everything a read-only replica needs to mirror a world: the entities that changed since the
  * last delta, plus events and chart samples appended since then. Plain data, so it crosses
@@ -21,7 +24,8 @@ export interface TableDelta<T> {
  */
 export interface WorldDelta {
   jd: number;
-  ships: TableDelta<Ship>;
+  ships: TableDelta<ShipFields>;
+  plans: ShipPlanChange[];
   settlements: TableDelta<Settlement>;
   companies: TableDelta<Company>;
   contracts: TableDelta<Contract>;
@@ -42,16 +46,20 @@ const exact = (_key: string, v: unknown) =>
  * Diffs a live table against what was last sent. Entities are compared by a JSON signature,
  * so the sim needs no dirty marking: a change anywhere in an entity resends that entity.
  */
-function tableWriter<T extends { id: string }>(map: Map<string, T>): () => TableDelta<T> {
+function tableWriter<T extends { id: string }, Row extends { id: string }>(
+  map: Map<string, T>,
+  project: (item: T) => Row,
+): () => TableDelta<Row> {
   let sent = new Map<string, string>();
   return () => {
-    const changed: T[] = [];
+    const changed: Row[] = [];
     const next = new Map<string, string>();
     let sameIds = map.size === sent.size;
     const previous = sent.keys();
     for (const [id, item] of map) {
-      const signature = JSON.stringify(item, exact);
-      if (sent.get(id) !== signature) changed.push(item);
+      const row = project(item);
+      const signature = JSON.stringify(row, exact);
+      if (sent.get(id) !== signature) changed.push(row);
       if (sameIds && previous.next().value !== id) sameIds = false;
       next.set(id, signature);
     }
@@ -64,16 +72,35 @@ function tableWriter<T extends { id: string }>(map: Map<string, T>): () => Table
 export function createDeltaWriter(world: LogisticsWorld): () => WorldDelta {
   let sentEvents = 0;
   const statsCursor: StatsCursor = new Map();
-  const ships = tableWriter(world.ships);
-  const settlements = tableWriter(world.settlements);
-  const companies = tableWriter(world.companies);
-  const contracts = tableWriter(world.contracts);
+  const ships = tableWriter(world.ships, (ship) => {
+    const { plan: _plan, ...fields } = ship;
+    return fields;
+  });
+  const settlements = tableWriter(world.settlements, (item) => item);
+  const companies = tableWriter(world.companies, (item) => item);
+  const contracts = tableWriter(world.contracts, (item) => item);
+  const sentPlans = new Map<string, NonNullable<Ship['plan']>>();
   return () => {
     const events = world.events.since(sentEvents);
     sentEvents = world.events.count;
+    const shipDelta = ships();
+    const plans: ShipPlanChange[] = [];
+    // A trajectory is fixed once dispatched. Arrival clears it and a new dispatch replaces it.
+    for (const { id, plan } of world.ships.values()) {
+      if (plan === (sentPlans.get(id) ?? null)) continue;
+      plans.push({ id, plan });
+      if (plan) sentPlans.set(id, plan);
+      else sentPlans.delete(id);
+    }
+    if (shipDelta.ids) {
+      for (const id of sentPlans.keys()) {
+        if (!world.ships.has(id)) sentPlans.delete(id);
+      }
+    }
     return {
       jd: world.jd,
-      ships: ships(),
+      ships: shipDelta,
+      plans,
       settlements: settlements(),
       companies: companies(),
       contracts: contracts(),
@@ -103,7 +130,17 @@ function applyTable<T extends { id: string }>(map: Map<string, T>, d: TableDelta
  */
 export function applyDelta(world: LogisticsWorld, d: WorldDelta): void {
   world.setReplicaJd(d.jd);
-  applyTable(world.ships, d.ships);
+  const plans = new Map(d.plans.map(({ id, plan }) => [id, plan]));
+  const changed = d.ships.changed.map((ship): Ship => {
+    const plan = plans.get(ship.id);
+    plans.delete(ship.id);
+    return { ...ship, plan: plan === undefined ? (world.ships.get(ship.id)?.plan ?? null) : plan };
+  });
+  applyTable(world.ships, { ids: d.ships.ids, changed });
+  for (const [id, plan] of plans) {
+    const ship = world.ships.get(id);
+    if (ship) world.ships.set(id, { ...ship, plan });
+  }
   applyTable(world.settlements, d.settlements);
   applyTable(world.companies, d.companies);
   applyTable(world.contracts, d.contracts);

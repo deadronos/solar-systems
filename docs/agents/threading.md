@@ -39,29 +39,33 @@ The worker (`createEconomyServer`, independent of the Worker API so tests can dr
 - yields through a `MessageChannel` (not `setTimeout`, which is clamped to 4 ms);
 - posts deltas at most every 50 ms while catching up, and immediately once caught up.
 
-A `WorldDelta` carries, per entity table (ships, settlements, companies, contracts), only the
-entities that **changed** since the last delta, plus the full id order when membership or
-order changed (removals are implied). Then come the events and stats samples appended since
-the last delta, the event count and the hash state. The writer finds changes by comparing a
-JSON signature of each entity with the one it last sent (non-finite numbers are kept apart),
-so the sim needs no dirty marking. `applyDelta` sets the changed entities, rebuilds the map
-order when ids are given, and ingests the events without notifying listeners. Deltas must be
-applied in order, from the first; several queued in one frame are all applied (each is small).
+A `WorldDelta` carries the changed rows for ships, settlements, companies and contracts, plus
+the full id order when membership or order changes (removals are implied). Ship rows contain
+the changing ship fields, while a separate sequence carries trajectory plans when assigned,
+replaced or cleared. Plans are fixed after dispatch and compared by reference. Other field
+changes are found by comparing number-exact JSON signatures. The delta also carries new
+events and stats samples, the event count and the hash state. The replica applies deltas from
+the first in order and ingests events without notifying listeners.
 
-Measured after 20 simulated years (77 ships, 300 contracts): a one-day delta fell from 210 KB
-to 121 KB and an 18-day one from 354 KB to 274 KB. Ships still change on every tick (their
-`stats` and `busyDays`), so they are always resent. Settlements, companies and contracts mostly
-are not. Diffing costs the worker about 0.6 ms per delta.
+Run `pnpm bench:payload` to measure median component sizes across seven one-day deltas after
+a warmup. The script uses Node V8 serialization as a proxy for structured-clone payload size.
+
+| Scenario                                    | Ships | Total bytes before | Total bytes after | Plan bytes before | Plan bytes after |
+| ------------------------------------------- | ----: | -----------------: | ----------------: | ----------------: | ---------------: |
+| After 20 years                              |   125 |            159,670 |           126,132 |            37,780 |            1,481 |
+| After 30 days with a requested fleet of 300 |   304 |            194,609 |           156,448 |            46,702 |            2,411 |
+
+Plan sizes are measured separately from the ship fields on both versions, so the before
+column includes an estimate of the bytes taken by plans embedded in ship records.
 
 ## Rules for code that reads the economy
 
 - Treat `sim.logistics` as **read-only** in render and UI code. In worker mode it's a replica
   that is overwritten every delta.
-- **An entity's object is replaced when any of its fields changes**, and kept otherwise. A
-  ship is replaced on nearly every delta (its stats tick), along with its `plan`, so key plans
-  by value: `TrajectoryLayer` uses `planKey(plan)`. Polled UI uses string keys
-  (`usePolledKeyed`). In inline mode objects are mutated in place, so identity says nothing
-  there either.
+- An entity's object is replaced when its fields change and kept otherwise. Replica ships
+  reuse their plan objects across counter updates. Inline objects are mutated in place, so
+  render code can continue keying trajectories by value using `planKey(plan)`. Polled UI uses
+  string keys (`usePolledKeyed`).
 - The replica lags the clock by a few frames (~0.25 s of simulated time). Code that positions
   ships handles a clock ahead of the economy (`shipAnchorBody` treats a ship past its
   `arriveJd` as already docked).

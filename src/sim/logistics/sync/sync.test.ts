@@ -47,7 +47,7 @@ function fakeWorker() {
 /** JSON view of everything the UI reads. */
 function view(w: LogisticsWorld) {
   const companies = [...w.companies.keys()];
-  return JSON.stringify({
+  return {
     jd: w.jd,
     ships: [...w.ships.values()],
     settlements: [...w.settlements.values()],
@@ -60,7 +60,7 @@ function view(w: LogisticsWorld) {
     prices: w.stats!.series('price:food', 'mars-colony'),
     flows: [...w.stats!.flows],
     volume: w.stats!.tradeVolume365,
-  });
+  };
 }
 
 describe('economy worker', () => {
@@ -96,7 +96,7 @@ describe('economy worker', () => {
         controllers: true,
       });
       reference.advanceTo(replica.jd);
-      expect(view(replica)).toBe(view(reference));
+      expect(view(replica)).toEqual(view(reference));
       const arrivals = replica.events.recent(200, (event) => event.type === 'ShipArrived');
       expect(arrivals.some(({ jd }) => (jd - scenario.startJd) % 0.25 !== 0)).toBe(true);
       expect(replica.events.recent(1, (e) => e.type === 'ShipIntentChanged')).toHaveLength(1);
@@ -195,6 +195,36 @@ describe('world deltas', () => {
     expect(replica.settlements.get(first!.id)).not.toBe(before.get(first!.id));
     expect(replica.settlements.get(first!.id)!.lastMilestone).toBe(first!.lastMilestone);
     expect(replica.settlements.get(second!.id)).toBe(before.get(second!.id));
+  });
+
+  it('keeps the replica plan across counter updates and handles plan-only changes', () => {
+    const { world, replica, sync } = setup();
+    const ship = [...world.ships.values()].find((s) => s.classId === 'torch-courier')!;
+    expect(
+      world.issue(ship.companyId, [
+        { type: 'PlanAndDispatch', shipId: ship.id, toSiteId: 'mars-colony' },
+      ]),
+    ).toEqual([true]);
+    sync();
+    const original = replica.ships.get(ship.id)!;
+    const plan = original.plan;
+    expect(plan).toEqual(ship.plan);
+    expect(plan).not.toBeNull();
+
+    ship.busyDays += 0.25;
+    const counters = sync();
+    expect(counters.ships.changed.map(({ id }) => id)).toEqual([ship.id]);
+    expect(replica.ships.get(ship.id)?.busyDays).toBe(ship.busyDays);
+    expect(replica.ships.get(ship.id)?.plan).toBe(plan);
+
+    ship.plan = { ...ship.plan!, arriveJd: ship.plan!.arriveJd + 0.25 };
+    expect(sync().ships.changed).toHaveLength(0);
+    expect(replica.ships.get(ship.id)?.plan).toEqual(ship.plan);
+    expect(replica.ships.get(ship.id)?.plan).not.toBe(plan);
+
+    ship.plan = null;
+    expect(sync().ships.changed).toHaveLength(0);
+    expect(replica.ships.get(ship.id)?.plan).toBeNull();
   });
 
   it('mirrors removals, additions and reordering', () => {
