@@ -83,22 +83,52 @@ function spend(
 export const penaltyFor = (world: LogisticsWorld, c: Contract): number =>
   (c.kind === 'export' ? c.escrowCost : c.reward) * world.constants.contracts.penaltyFraction;
 
-function setOrigin(ship: Ship, good: GoodId, site: Settlement): void {
-  if (site.isDeepMarket) {
-    if (ship.cargoOrigin) delete ship.cargoOrigin[good];
-  } else {
-    (ship.cargoOrigin ??= {})[good] = site.id;
+function addOwnedCargo(ship: Ship, good: GoodId, qty: number, site: Settlement): void {
+  ship.cargo[good] = (ship.cargo[good] ?? 0) + qty;
+  if (site.isDeepMarket) return;
+  const provenance = (ship.cargoProvenance ??= {});
+  const origins = (provenance[good] ??= []);
+  const origin = origins.find((entry) => entry.settlementId === site.id);
+  if (origin) origin.qty += qty;
+  else origins.push({ settlementId: site.id, qty });
+}
+
+/** Ordinary cargo is mixed. Take the same share from each origin, excluding reserved freight. */
+function unloadOwnedCargo(
+  world: LogisticsWorld,
+  ship: Ship,
+  good: GoodId,
+  qty: number,
+  ownedQty: number,
+  payBounty: boolean,
+): void {
+  const origins = ship.cargoProvenance?.[good];
+  if (!origins) return;
+  const share = Math.min(1, qty / ownedQty);
+  const bountyPerT = payBounty
+    ? (world.goods.get(good)?.basePrice ?? 0) * world.constants.markets.earthExportBounty
+    : 0;
+  for (const origin of origins) {
+    const removed = origin.qty * share;
+    origin.qty -= removed;
+    if (bountyPerT <= 0) continue;
+    const exporter = world.settlements.get(origin.settlementId);
+    if (exporter && !exporter.isDeepMarket) {
+      const bounty = removed * bountyPerT;
+      external(world, 'charter', bounty);
+      creditSettlement(world, exporter, bounty);
+    }
   }
+  if (ownedQty - qty <= 1e-9) delete ship.cargoProvenance![good];
 }
 
 /** Take `qty` of a good out of a ship's hold. */
 function unload(ship: Ship, good: GoodId, qty: number): void {
   const left = (ship.cargo[good] ?? 0) - qty;
-  if (left > 1e-9) {
-    ship.cargo[good] = left;
-  } else {
+  if (left > 1e-9) ship.cargo[good] = left;
+  else {
     delete ship.cargo[good];
-    if (ship.cargoOrigin) delete ship.cargoOrigin[good];
+    if (ship.cargoProvenance) delete ship.cargoProvenance[good];
   }
 }
 
@@ -250,8 +280,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (!site.isDeepMarket) e.stock -= cmd.qty;
       recordDeepTrade(site, cmd.good, -cmd.qty);
       recordOfftake(world, site, cmd.good, cmd.qty);
-      ship.cargo[cmd.good] = (ship.cargo[cmd.good] ?? 0) + cmd.qty;
-      setOrigin(ship, cmd.good, site);
+      addOwnedCargo(ship, cmd.good, cmd.qty, site);
       world.events.append(world.jd, {
         type: 'CargoBought',
         shipId: ship.id,
@@ -271,14 +300,11 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (onBoard < cmd.qty - 1e-9) reject('not-in-cargo');
       // The loaded contract doubles as the buyer's reservation within the hold.
       const contract = ship.contractId ? world.contracts.get(ship.contractId) : undefined;
-      if (
-        contract?.kind === 'freight' &&
-        contract.status === 'loaded' &&
-        contract.good === cmd.good &&
-        onBoard - cmd.qty < contract.qty
-      ) {
-        reject('cargo-reserved');
-      }
+      const reserved =
+        contract?.kind === 'freight' && contract.status === 'loaded' && contract.good === cmd.good
+          ? contract.qty
+          : 0;
+      if (reserved > 0 && onBoard - cmd.qty < reserved) reject('cargo-reserved');
       const e = site.market[cmd.good];
       if (!site.isDeepMarket && cmd.qty > maxBuyQty(e, c.markets) + 1e-9)
         reject('market-saturated');
@@ -288,17 +314,9 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (!site.isDeepMarket) e.stock += cmd.qty;
       creditSettlement(world, site, -price * cmd.qty);
       recordDeepTrade(site, cmd.good, cmd.qty);
-      const origin = ship.cargoOrigin?.[cmd.good];
+      unloadOwnedCargo(world, ship, cmd.good, cmd.qty, onBoard - reserved, site.isDeepMarket);
       unload(ship, cmd.good, cmd.qty);
       earn(company, ship, price * cmd.qty);
-      // The Earth charter rewards the colony that produced goods exported to Earth.
-      const exporter = site.isDeepMarket && origin ? world.settlements.get(origin) : undefined;
-      const bounty =
-        (world.goods.get(cmd.good)?.basePrice ?? 0) * cmd.qty * c.markets.earthExportBounty;
-      if (exporter && !exporter.isDeepMarket && bounty > 0) {
-        external(world, 'charter', bounty);
-        creditSettlement(world, exporter, bounty);
-      }
       company.stats.tradesCompleted++;
       world.events.append(world.jd, {
         type: 'CargoSold',
@@ -343,8 +361,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       if (contract.kind === 'export') {
         // A sell order: the carrier buys the reserved goods, and they become its cargo.
         spend(world, company, ship, contract.escrowCost, site);
-        ship.cargo[contract.good] = (ship.cargo[contract.good] ?? 0) + contract.qty;
-        setOrigin(ship, contract.good, site);
+        addOwnedCargo(ship, contract.good, contract.qty, site);
         recordOfftake(world, site, contract.good, contract.qty);
         contract.status = 'completed';
         ship.contractId = null;
@@ -384,6 +401,15 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const site = dockedAt(world, ship);
       if (site.id !== contract.settlementId) reject('wrong-site');
       if ((ship.cargo[contract.good] ?? 0) < contract.qty - 1e-9) reject('not-in-cargo');
+      if (contract.kind === 'delivery')
+        unloadOwnedCargo(
+          world,
+          ship,
+          contract.good,
+          contract.qty,
+          ship.cargo[contract.good]!,
+          false,
+        );
       unload(ship, contract.good, contract.qty);
       site.market[contract.good].stock += contract.qty;
       creditSettlement(world, site, -contract.reward);

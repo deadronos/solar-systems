@@ -221,10 +221,9 @@ export interface Ship {
   plan: TrajectoryPlan | null;
   cargo: Partial<Record<GoodId, number>>;
   contractId: string | null;
-  /**
-   * Colony each cargo good was last bought at, for the Earth charter's export bounty. Absent
-   * for goods bought at a deep market (and in older snapshots).
-   */
+  /** Carrier-owned tonnes bought at each colony, for the Earth charter bounty. */
+  cargoProvenance?: Partial<Record<GoodId, { settlementId: string; qty: number }[]>>;
+  /** Legacy snapshot field. Restored as provenance for the ordinary cargo on board. */
   cargoOrigin?: Partial<Record<GoodId, string>>;
   intent: string;
   pendingRemoval: boolean;
