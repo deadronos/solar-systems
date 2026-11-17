@@ -111,6 +111,10 @@ export const ECONOMY_CONSTANTS: EconomyConstants = {
     maxPaybackDays: 1_095,
     /** Value of output nobody uses locally, as a share of Earth's price (hauling costs). */
     exportNetback: 0.6,
+    /** Smoothing period for observed outbound sales and shipments. */
+    offtakeMemoryDays: 120,
+    /** Outbound stock buffer in full orders, even before the first sale. */
+    exportBufferOrders: 4,
     /** Survival production below this multiple of consumption makes life support urgent. */
     survivalMargin: 1.05,
     /** Expand only facilities that run at least this share of capacity. */
