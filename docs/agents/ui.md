@@ -13,7 +13,9 @@ The HUD panels, how they read the simulation, and the zustand stores. Read this 
 `EventFeed`, the key hint).
 
 - **Economy mode** (`sim.logistics !== null`): `Ledgers` on the left and `Inspector` on the
-  right.
+  right. At widths up to 760 px, a compact row opens Ledgers, Details, Layers, or Activity.
+  The panels share one scrollable drawer position, start closed, and open one at a time.
+  Time controls remain visible and the exposed map still receives pointer input.
 - **Orrery mode:** `BodyPicker` and `InfoPanel`.
 - Each independent region is wrapped in `<ErrorBoundary label="…">`. Pass `resetKey` when the
   subject changes, e.g. the inspector resets on selection change.
