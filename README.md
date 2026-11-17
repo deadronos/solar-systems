@@ -49,14 +49,14 @@ In economy mode time only runs forward, up to 1 year/s.
 
 ## Controls
 
-| Input            | Action                             |
-| ---------------- | ---------------------------------- |
-| Drag / scroll    | Orbit / zoom                       |
-| Click body/label | Focus the body                     |
-| Space            | Play / pause                       |
-| `[` `]`          | Slower / faster (1 s/s to 10 yr/s) |
-| `R`              | Reverse time                       |
-| `N`              | Jump to now                        |
+| Input            | Action                                    |
+| ---------------- | ----------------------------------------- |
+| Drag / scroll    | Orbit / zoom                              |
+| Click body/label | Focus the body                            |
+| Space            | Play / pause outside interactive controls |
+| `[` `]`          | Slower / faster (1 s/s to 10 yr/s)        |
+| `R`              | Reverse time                              |
+| `N`              | Jump to now                               |
 
 ## Architecture
 

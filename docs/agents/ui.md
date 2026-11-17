@@ -65,11 +65,14 @@ Never write to the sim from the UI except through its public control API (`clock
 
 ## Keyboard
 
-`TimeControls` and `TopBar` register `window` keydown handlers. Both ignore events from
-`<input>`, and `TopBar` also ignores `<select>`:
+`TimeControls` and `TopBar` register `window` keydown handlers. Time shortcuts ignore
+interactive controls and handled events. `TopBar` ignores inputs and selects:
 
-- Space pauses or resumes; `[` and `]` change speed; `R` reverses and `N` jumps to now (orrery
-  mode only).
+- Space pauses or resumes outside interactive controls. `[` and `]` change speed.
+  `R` reverses and `N` jumps to now (orrery mode only).
 - Esc clears the selection; `F` toggles follow; Alt+←/→ goes back and forward.
 
 Update the hint text in `Hud.tsx` and the README controls table when shortcuts change.
+
+Ledger tabs use Left/Right to switch views and Home/End to jump to the first/last view.
+Space and Enter activate the focused tab using native button behavior.

@@ -93,8 +93,8 @@ export function Hud() {
         )}
         <p className="hint">
           {economy
-            ? 'Drag to orbit · scroll to zoom · click to inspect · double-click or F to follow · Esc clear · Alt+←/→ back/forward · Space pause · [ ] speed'
-            : 'Drag to orbit · scroll to zoom · click a body or label to focus · Space pause · [ ] speed · R reverse · N now'}
+            ? 'Drag to orbit · scroll to zoom · click to inspect · double-click or F to follow · Esc clear · Alt+←/→ back/forward · Space pause (outside controls) · [ ] speed'
+            : 'Drag to orbit · scroll to zoom · click a body or label to focus · Space pause (outside controls) · [ ] speed · R reverse · N now'}
         </p>
       </div>
     </div>
