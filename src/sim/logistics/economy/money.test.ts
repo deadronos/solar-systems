@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_CATALOG } from '../../data/catalog.ts';
 import { Ephemeris } from '../../world/ephemeris.ts';
 import { START_JD } from '../core/time.ts';
-import { createWorld } from '../createWorld.ts';
+import { createWorld, restoreWorld, snapshotWorld } from '../createWorld.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { SETTLEMENTS } from '../data/settlements.ts';
 import { expireContract } from './contracts.ts';
@@ -96,7 +96,7 @@ describe('money flows', () => {
         { type: 'PlanAndDispatch', shipId: ship.id, toSiteId: 'earth-exchange' },
       ]),
     ).toEqual([true, true]);
-    expect(ship.cargoOrigin?.food).toBe('farm');
+    expect(ship.cargoProvenance?.food).toEqual([{ settlementId: farm.id, qty: 100 }]);
     w.advanceTo(ship.plan!.arriveJd + 0.5);
     const seller = w.settlements.get('farm')!;
     const before = seller.treasury;
@@ -107,8 +107,38 @@ describe('money flows', () => {
     const bounty = w.goods.get('food')!.basePrice * 100 * C.markets.earthExportBounty;
     expect(seller.treasury - before).toBeCloseTo(bounty, 3);
     expect(w.ledger.charter - charter).toBeCloseTo(bounty, 3);
-    expect(ship.cargoOrigin?.food).toBeUndefined();
+    expect(ship.cargoProvenance?.food).toBeUndefined();
     expectConserved(w, supply0);
+  });
+
+  it('pays only the colony share of a mixed cargo across partial sales after restoring', () => {
+    const w = createWorld(scenario([earth, farm], [company(earth.id)]), eph);
+    const supply0 = moneySupply(w);
+    const ship = [...w.ships.values()][0]!;
+    expect(
+      w.issue('t', [{ type: 'BuyCargo', shipId: ship.id, good: 'food', qty: 799, maxPrice: 1e9 }]),
+    ).toEqual([true]);
+    ship.siteId = farm.id;
+    expect(
+      w.issue('t', [{ type: 'BuyCargo', shipId: ship.id, good: 'food', qty: 1, maxPrice: 1e9 }]),
+    ).toEqual([true]);
+    ship.siteId = earth.id;
+    w.advanceTo(START_JD + 0.25);
+    const restored = restoreWorld(JSON.parse(JSON.stringify(snapshotWorld(w))), eph);
+    const seller = restored.settlements.get(farm.id)!;
+    const before = seller.treasury;
+    const bounty = w.goods.get('food')!.basePrice * C.markets.earthExportBounty;
+    const sellHalf = () =>
+      restored.issue('t', [
+        { type: 'SellCargo', shipId: ship.id, good: 'food', qty: 400, minPrice: 0 },
+      ]);
+
+    expect(sellHalf()).toEqual([true]);
+    expect(seller.treasury - before).toBeCloseTo(bounty / 2, 3);
+    expect(sellHalf()).toEqual([true]);
+    expect(seller.treasury - before).toBeCloseTo(bounty, 3);
+    expect(restored.ledger.charter).toBeCloseTo(bounty, 3);
+    expectConserved(restored, supply0);
   });
 
   it("Earth's price falls as traders sell to it and recovers over time", () => {

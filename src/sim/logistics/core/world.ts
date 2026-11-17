@@ -155,8 +155,24 @@ export class LogisticsWorld {
       });
     }
     for (const [id, company] of state.companies) this.companies.set(id, company);
-    for (const [id, ship] of state.ships) this.ships.set(id, ship);
     for (const [id, contract] of state.contracts) this.contracts.set(id, contract);
+    for (const [id, ship] of state.ships) {
+      if (ship.cargoOrigin) {
+        const contract = ship.contractId ? this.contracts.get(ship.contractId) : undefined;
+        for (const good of GOOD_IDS) {
+          const settlementId = ship.cargoOrigin[good];
+          const reserved =
+            contract?.kind === 'freight' && contract.status === 'loaded' && contract.good === good
+              ? contract.qty
+              : 0;
+          const qty = (ship.cargo[good] ?? 0) - reserved;
+          if (settlementId && qty > 0 && !ship.cargoProvenance?.[good])
+            (ship.cargoProvenance ??= {})[good] = [{ settlementId, qty }];
+        }
+        delete ship.cargoOrigin;
+      }
+      this.ships.set(id, ship);
+    }
     this.ledger = { ...emptyLedger(), ...state.ledger };
   }
 

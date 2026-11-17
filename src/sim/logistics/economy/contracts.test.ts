@@ -174,8 +174,12 @@ describe('contracts', () => {
       ]),
     ).toEqual([true, true, true]);
 
-    // Use the existing snapshot format, with the reservation derived from the loaded contract.
-    const restored = restoreWorld(JSON.parse(JSON.stringify(snapshotWorld(w))), eph);
+    // Restore a legacy snapshot whose last-origin tag covers only the carrier's own cargo.
+    const snapshot = snapshotWorld(w);
+    const savedShip = snapshot.world.ships[0]![1];
+    delete savedShip.cargoProvenance;
+    savedShip.cargoOrigin = { food: farm.id };
+    const restored = restoreWorld(JSON.parse(JSON.stringify(snapshot)), eph);
     const ship = restored.ships.get(shipId)!;
     const pickup = restored.settlements.get(farm.id)!;
     const buyer = restored.settlements.get('col')!;
@@ -210,6 +214,7 @@ describe('contracts', () => {
     ).toEqual([true]);
     expect(buyer.market.food.stock).toBe(buyerStock + freight.qty);
     expect(ship.cargo.food).toBe(5);
+    expect(ship.cargoProvenance?.food?.[0]?.qty).toBeCloseTo(5, 9);
     expect(ship.contractId).toBeNull();
     expect(restored.contracts.get(freight.id)?.status).toBe('completed');
   });

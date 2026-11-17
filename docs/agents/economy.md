@@ -256,8 +256,11 @@ Where money goes:
 - Ship upkeep is wages, paid to where the ship is, or the port it last left.
 - Penalties go to the settlement that posted the order.
 - A new ship pays `ships.shipyardShare` of its price to the yard; the rest leaves the economy.
-- Selling to Earth earns the colony the goods were bought at (`ship.cargoOrigin`) a charter
-  bounty of `markets.earthExportBounty` × base price per tonne.
+- Selling to Earth earns each originating colony a charter bounty of
+  `markets.earthExportBounty` × base price per tonne of its goods sold. Carrier-owned cargo
+  tracks tonnes by origin. Partial sales and delivery orders draw proportionally from each
+  origin, including bounty-free deep-market cargo. Reserved freight is accounted for separately.
+  Older snapshots restore the last recorded origin for the carrier-owned tonnes already aboard.
 - A bankrupt carrier's lost freight is charged to the company, which refunds the buyer.
 
 ## Companies
