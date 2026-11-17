@@ -11,18 +11,22 @@ export type ScheduledAction =
   | { kind: 'deliverShip'; shipId: string; siteId: string }
   | { kind: 'spawnEntrant' };
 
-export function dispatchAction(world: LogisticsWorld, action: ScheduledAction): void {
+export function dispatchAction(
+  world: LogisticsWorld,
+  action: ScheduledAction,
+  dueJd: number,
+): void {
   switch (action.kind) {
     case 'depart':
-      return depart(world, action.shipId);
+      return depart(world, action.shipId, dueJd);
     case 'arrive':
-      return arrive(world, action.shipId);
+      return arrive(world, action.shipId, dueJd);
     case 'expireContract':
-      return expireContract(world, action.contractId);
+      return expireContract(world, action.contractId, dueJd);
     case 'deliverShip':
-      return deliverShip(world, action.shipId, action.siteId);
+      return deliverShip(world, action.shipId, action.siteId, dueJd);
     case 'spawnEntrant':
-      spawnEntrant(world);
+      spawnEntrant(world, dueJd);
       return;
   }
 }

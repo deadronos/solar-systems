@@ -139,18 +139,18 @@ function earn(company: Company, ship: Ship | null, amount: number): void {
 }
 
 /** Remove a ship from the world and its company. */
-export function removeShip(world: LogisticsWorld, ship: Ship): void {
+export function removeShip(world: LogisticsWorld, ship: Ship, eventJd = world.jd): void {
   world.ships.delete(ship.id);
   const company = world.companies.get(ship.companyId);
   if (company) company.shipIds = company.shipIds.filter((id) => id !== ship.id);
-  world.events.append(world.jd, {
+  world.events.append(eventJd, {
     type: 'ShipRemoved',
     shipId: ship.id,
     companyId: ship.companyId,
   });
 }
 
-export function arrive(world: LogisticsWorld, shipId: string): void {
+export function arrive(world: LogisticsWorld, shipId: string, eventJd = world.jd): void {
   const ship = world.ships.get(shipId);
   if (!ship || !ship.plan) return;
   const dest = ship.plan.toSiteId;
@@ -162,19 +162,19 @@ export function arrive(world: LogisticsWorld, shipId: string): void {
   const port = world.settlements.get(dest);
   // The docking fee is port income.
   if (company && port) companyPays(world, company, ship, port, world.constants.ships.dockingFee);
-  world.events.append(world.jd, {
+  world.events.append(eventJd, {
     type: 'ShipArrived',
     shipId,
     companyId: ship.companyId,
     settlementId: dest,
   });
   if (ship.pendingRemoval) {
-    removeShip(world, ship);
+    removeShip(world, ship, eventJd);
     return;
   }
   if (!ship.contractId && cargoMass(ship) === 0) {
     ship.intent = 'Idle';
-    world.events.append(world.jd, {
+    world.events.append(eventJd, {
       type: 'ShipIdle',
       shipId,
       companyId: ship.companyId,
@@ -183,23 +183,28 @@ export function arrive(world: LogisticsWorld, shipId: string): void {
   }
 }
 
-export function deliverShip(world: LogisticsWorld, shipId: string, siteId: string): void {
+export function deliverShip(
+  world: LogisticsWorld,
+  shipId: string,
+  siteId: string,
+  eventJd = world.jd,
+): void {
   const ship = world.ships.get(shipId);
   if (!ship || ship.state !== 'building') return;
   ship.state = 'docked';
   ship.intent = 'Idle';
   const ids = { shipId, companyId: ship.companyId, settlementId: siteId };
-  world.events.append(world.jd, { type: 'ShipDelivered', ...ids });
-  world.events.append(world.jd, { type: 'ShipIdle', ...ids });
+  world.events.append(eventJd, { type: 'ShipDelivered', ...ids });
+  world.events.append(eventJd, { type: 'ShipIdle', ...ids });
 }
 
-export function depart(world: LogisticsWorld, shipId: string): void {
+export function depart(world: LogisticsWorld, shipId: string, eventJd = world.jd): void {
   const ship = world.ships.get(shipId);
   if (!ship || !ship.plan || ship.state !== 'waiting') return;
   const from = ship.siteId ?? undefined;
   ship.state = 'in_transit';
   ship.siteId = null;
-  world.events.append(world.jd, {
+  world.events.append(eventJd, {
     type: 'ShipDeparted',
     shipId,
     companyId: ship.companyId,

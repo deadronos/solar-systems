@@ -44,7 +44,8 @@ pruning, numerical tolerances and cache limits remain implementation constants.
 Fixed **6-hour ticks** (`TICK_DAYS = 0.25`), never skipped or resized. `advanceTo(jd)`:
 
 1. Run scheduled actions due before the tick's end, in (jd, insertion) order (`Scheduler`, a
-   binary heap). A discriminated action record identifies the domain operation and its arguments.
+   binary heap). Scheduled events use the action’s exact due JD. The clock used by tick phases
+   continues to advance in six-hour steps.
 2. Advance the clock, then run the phases installed by `createWorld`, in this order:
    **population → production → investment → markets → contracts → ships → companies → stats → controllers**.
 

@@ -88,7 +88,7 @@ function bankrupt(world: LogisticsWorld, company: Company): void {
 }
 
 /** A new company enters the market with seed capital and one ship at a shipyard. */
-export function spawnEntrant(world: LogisticsWorld): Company {
+export function spawnEntrant(world: LogisticsWorld, eventJd: number): Company {
   const rng = world.rng('entrants');
   const personalities = [...world.personalities.values()].toSorted((a, b) =>
     a.id.localeCompare(b.id),
@@ -110,7 +110,7 @@ export function spawnEntrant(world: LogisticsWorld): Company {
   };
   world.companies.set(company.id, company);
   external(world, 'entrants', company.cash);
-  world.events.append(world.jd, { type: 'CompanyFounded', companyId: company.id });
+  world.events.append(eventJd, { type: 'CompanyFounded', companyId: company.id });
 
   const affordable = (c: ShipClass) => c.price <= company.cash * 0.5;
   const classes = [...world.shipClasses.values()].toSorted((a, b) => a.price - b.price);
@@ -129,7 +129,7 @@ export function spawnEntrant(world: LogisticsWorld): Company {
       `${name.split(' ')[0]} ${cls.name.split(' ').at(-1)} 1`,
       'docked',
     );
-    world.events.append(world.jd, {
+    world.events.append(eventJd, {
       type: 'ShipIdle',
       shipId: ship.id,
       companyId: company.id,

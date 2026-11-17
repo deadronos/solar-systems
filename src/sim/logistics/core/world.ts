@@ -286,7 +286,7 @@ export class LogisticsWorld {
         action;
         action = this.#scheduler.popDue(next)
       ) {
-        this.#dispatch(this, action);
+        this.#dispatch(this, action.item, action.jd);
       }
       this.#jd = next;
       for (const p of this.#phases) p.fn(this, TICK_DAYS);
