@@ -213,17 +213,41 @@ describe('planner', () => {
   describe('torch paths around the Sun (#21)', () => {
     const r = 0.3 * AU_KM;
 
-    it('bends a line that would pass the Sun through a waypoint on the keep-out sphere', () => {
-      const w = sunWaypoint(vec3(-AU_KM, 0.1 * AU_KM, 0), vec3(AU_KM, 0.1 * AU_KM, 0), r)!;
-      expect(distance(w, vec3())).toBeCloseTo(r, 0);
-      expect(w.y).toBeGreaterThan(0); // the near side
-      // Dead centre: sideways in the ecliptic plane.
-      const c = sunWaypoint(vec3(-AU_KM, 0, 0), vec3(AU_KM, 0, 0), r)!;
-      expect(distance(c, vec3())).toBeCloseTo(r, 0);
-      expect(c.z).toBeCloseTo(0, 6);
-      // Clear of the sphere, or the closest point is an endpoint: straight.
+    const segmentRadius = (a: ReturnType<typeof vec3>, b: ReturnType<typeof vec3>) => {
+      const d = vec3(b.x - a.x, b.y - a.y, b.z - a.z);
+      const t = Math.max(
+        0,
+        Math.min(1, -(a.x * d.x + a.y * d.y + a.z * d.z) / (d.x ** 2 + d.y ** 2 + d.z ** 2)),
+      );
+      return Math.hypot(a.x + d.x * t, a.y + d.y * t, a.z + d.z * t);
+    };
+
+    it('clears the keep-out sphere along both straight segments', () => {
+      for (const [a, b] of [
+        [vec3(-0.31 * AU_KM, 0.1 * AU_KM, 0), vec3(AU_KM, 0.1 * AU_KM, 0)],
+        [vec3(-AU_KM, 0, 0), vec3(AU_KM, 0, 0)],
+        [vec3(0, 0, -AU_KM), vec3(0, 0, AU_KM)],
+      ] as const) {
+        const waypoint = sunWaypoint(a, b, r)!;
+        expect(segmentRadius(a, waypoint)).toBeGreaterThanOrEqual(r);
+        expect(segmentRadius(waypoint, b)).toBeGreaterThanOrEqual(r);
+      }
       expect(sunWaypoint(vec3(-AU_KM, AU_KM, 0), vec3(AU_KM, AU_KM, 0), r)).toBeNull();
       expect(sunWaypoint(vec3(AU_KM, 0, 0), vec3(2 * AU_KM, 0, 0), r)).toBeNull();
+    });
+
+    it('keeps the audited Phobos to Luna route outside the sphere', () => {
+      const plan = planTrip(
+        cls('fusion-freighter'),
+        site('phobos-station'),
+        site('luna-base'),
+        2_466_458.5,
+        ctx,
+      );
+      const leg = plan?.legs.find((candidate) => candidate.kind === 'torch');
+      if (!leg?.via) throw new Error('Expected a torch detour');
+      expect(segmentRadius(leg.from, leg.via)).toBeGreaterThanOrEqual(r);
+      expect(segmentRadius(leg.via, leg.to)).toBeGreaterThanOrEqual(r);
     });
 
     it('a torch trip across the Sun detours around it, and pays to match velocities', () => {
@@ -237,7 +261,7 @@ describe('planner', () => {
       const p = vec3();
       for (let i = 0; i <= 200; i++) {
         evaluatePlan(plan!, leg.t0 + ((leg.t1 - leg.t0) * i) / 200, eph, p);
-        expect(distance(p, vec3())).toBeGreaterThan(0.95 * r);
+        expect(distance(p, vec3())).toBeGreaterThanOrEqual(r);
       }
       // Δv exceeds the burn alone (accel × time) by the Earth–Mars velocity difference.
       const burn = leg.kind === 'torch' ? leg.accelKmS2 * (leg.t1 - leg.t0) * 86_400 : 0;

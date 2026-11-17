@@ -279,9 +279,9 @@ const ECLIPTIC_NORTH: Vec3 = { x: 0, y: 0, z: 1 };
 
 /**
  * Waypoint that keeps a straight torch path from `a` to `b` out of the Sun's keep-out sphere
- * (radius `r` km), or null if the line already clears it. The waypoint sits on the sphere
- * above the line's closest point to the Sun, so the path bends around the Sun on the near
- * side. Endpoints inside the sphere (nothing orbits there today) get no detour.
+ * (radius `r` km), or null if the line already clears it. The waypoint is offset from
+ * the closest point on the original line until both chords clear the sphere. Endpoints
+ * inside the sphere (nothing orbits there today) get no detour.
  */
 export function sunWaypoint(a: Vec3, b: Vec3, r: number): Vec3 | null {
   if (!(r > 0) || length(a) < r || length(b) < r) return null;
@@ -293,10 +293,25 @@ export function sunWaypoint(a: Vec3, b: Vec3, r: number): Vec3 | null {
   const p = vec3(a.x + u * d.x, a.y + u * d.y, a.z + u * d.z);
   const dist = length(p);
   if (dist >= r) return null;
-  // Straight through the Sun: detour sideways in the ecliptic plane.
-  const n = dist > 1e-6 * r ? normalize(p, p) : normalize(p, cross(p, d, ECLIPTIC_NORTH));
-  if (!(length(n) > 0)) return vec3(r, 0, 0);
-  return vec3(n.x * r, n.y * r, n.z * r);
+  const lineLength = Math.sqrt(l2);
+  // The closer endpoint needs the steeper tangent. In the plane spanned by the line
+  // and p, a tangent of slope m satisfies (dist + m * along) / hypot(1, m) = r.
+  const along = Math.min(u, 1 - u) * lineLength;
+  const tangent = Math.sqrt(Math.max(0, along * along + dist * dist - r * r));
+  const slope = ((r - dist) * (r + dist)) / (along * dist + r * tangent);
+  // Pad the tangent slightly so rounding does not put a segment inside the sphere.
+  const offset = slope * along * (1 + 1e-9);
+  if (!Number.isFinite(offset)) return null;
+
+  const n = vec3();
+  if (dist > 1e-12 * r) normalize(n, p);
+  else {
+    // The straight path crosses the Sun. Pick a perpendicular even for a polar path.
+    cross(n, d, ECLIPTIC_NORTH);
+    if (length(n) < 1e-12 * lineLength) cross(n, d, vec3(1, 0, 0));
+    normalize(n, n);
+  }
+  return vec3(p.x + n.x * offset, p.y + n.y * offset, p.z + n.z * offset);
 }
 
 /** Seconds of change in arrival time below which the torch iteration stops. */
