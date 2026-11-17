@@ -36,12 +36,18 @@ export interface MeanElementsOrbit {
   omegaDeg: number;
   /** Mean anomaly at epoch. */
   M0Deg: number;
-  /** Sidereal orbital period (days). */
+  /** Sidereal period (days), used to advance mean longitude M + ω + Ω. */
   periodDays: number;
   /** Secular nodal rate (deg/day). Negative = regression. */
   OmegaRateDegPerDay?: number;
   /** Secular rate of the argument of periapsis (deg/day). */
   omegaRateDegPerDay?: number;
+}
+
+/** Mean anomaly advances relative to the moving periapsis. */
+function meanAnomalyRateDegPerDay(model: MeanElementsOrbit): number {
+  const periapsisRate = (model.OmegaRateDegPerDay ?? 0) + (model.omegaRateDegPerDay ?? 0);
+  return 360 / model.periodDays - periapsisRate;
 }
 
 export type OrbitModel = JplApproxOrbit | MeanElementsOrbit;
@@ -78,7 +84,7 @@ export function elementsAt(model: OrbitModel, jd: number): KeplerElements {
         i: model.iDeg * DEG,
         Omega: (model.OmegaDeg + (model.OmegaRateDegPerDay ?? 0) * dt) * DEG,
         omega: (model.omegaDeg + (model.omegaRateDegPerDay ?? 0) * dt) * DEG,
-        M: (model.M0Deg + (360 / model.periodDays) * dt) * DEG,
+        M: (model.M0Deg + meanAnomalyRateDegPerDay(model) * dt) * DEG,
       };
     }
   }
@@ -125,7 +131,7 @@ export function elementRates(model: OrbitModel, jd: number): ElementRates {
         iDot: 0,
         OmegaDot: (model.OmegaRateDegPerDay ?? 0) * DEG,
         omegaDot: (model.omegaRateDegPerDay ?? 0) * DEG,
-        n: (360 / model.periodDays) * DEG,
+        n: meanAnomalyRateDegPerDay(model) * DEG,
       };
   }
 }
@@ -134,7 +140,7 @@ export function elementRates(model: OrbitModel, jd: number): ElementRates {
 export function periodDays(model: OrbitModel): number {
   switch (model.kind) {
     case 'jplApprox': {
-      // Mean longitude rate minus perihelion rate gives the anomalistic period; close enough.
+      // Use the secular mean longitude rate for the sidereal period.
       const LR = model.rates[3];
       return (360 / LR) * DAYS_PER_JULIAN_CENTURY;
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AU_KM, DAYS_PER_JULIAN_CENTURY, J2000, SECONDS_PER_DAY } from './constants.ts';
-import { cross, DEG, distance, length, vec3, type Vec3 } from './math/vec3.ts';
+import { cross, DEG, distance, length, sub, vec3, type Vec3 } from './math/vec3.ts';
 
 const dot = (a: Vec3, b: Vec3) => a.x * b.x + a.y * b.y + a.z * b.z;
 import { elementsAt } from './orbits/models.ts';
@@ -74,6 +74,20 @@ describe('Ephemeris', () => {
   ])('places %s near its Horizons position in 2100', (id, x, y, z, toleranceKm) => {
     const position = eph.positionAt(id, 2_488_069.5, vec3());
     expect(distance(position, vec3(x, y, z))).toBeLessThan(toleranceKm);
+  });
+
+  // JPL Horizons geometric vectors, Moon (301) relative to Earth's centre (500@399).
+  // J2000 ecliptic, km, TDB. The 2040 sample is the default scenario start.
+  it.each([
+    [J2000, -291_608, -274_980, 36_271],
+    [2_458_849.5, 390_186, -98_341, -34_450],
+    [2_466_154.5, -174_441, 364_285, 25_296],
+    [2_473_459.5, -155_876, -356_584, -12_448],
+  ])('places the Moon near its Earth-relative Horizons position at JD %s', (jd, x, y, z) => {
+    const moon = eph.positionAt('moon', jd, vec3());
+    const earth = eph.positionAt('earth', jd, vec3());
+    const relative = sub(vec3(), moon, earth);
+    expect(distance(relative, vec3(x, y, z))).toBeLessThan(10_000);
   });
 
   it.each([
