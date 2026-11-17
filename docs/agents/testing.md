@@ -16,6 +16,9 @@ How tests are organised and which patterns to reuse. Read this before adding or 
 - `pnpm test` runs everything except the performance guard in about 50 s, most of it the
   five 20-year soaks. `pnpm test:perf` runs the guard alone; `pnpm check` runs it last. A three.js
   CJS deprecation warning in the output is expected noise.
+- `pnpm test:browser` runs Chromium smoke tests in `e2e/` with Playwright. Install its browser
+  with `pnpm exec playwright install chromium`. CI runs the browser job separately from the
+  Node suite and its performance guard.
 - Slow tests (multi-year runs) declare an explicit timeout: `it('…', { timeout: 180_000 }, …)`.
 
 ## Building worlds in tests

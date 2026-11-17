@@ -4,3 +4,6 @@ dist
 .DS_Store
 .claude
 .superpowers
+
+playwright-report/
+test-results/
