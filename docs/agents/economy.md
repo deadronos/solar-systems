@@ -212,6 +212,9 @@ falls below `contracts.postThreshold` times the desired level (half by default):
   spend the money kept for food.
 - Hauls are priced (fee, lead time, deadline) with the cheapest tier 1–2 class, from orbital
   geometry at the start of the current 7-day week, so pricing re-solves trips at most weekly.
+- When a survival order's delivered cost exceeds its budget, the settlement retries at
+  progressively smaller quantities. Each attempt quotes the goods and haulage at that load
+  before reserving stock or committing funds.
 - **Freight**: goods are _reserved_ at the cheapest source (stock removed). The buyer pays the
   escrow to the source **at loading** and pays the carrier's fee on delivery.
 - **Delivery**: the carrier sources the goods anywhere; the buyer pays the reward on delivery.

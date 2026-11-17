@@ -79,6 +79,26 @@ describe('contracts', () => {
     expect(open(w, 'food').reduce((a, c) => a + c.qty, 0)).toBe(covered);
   });
 
+  it('posts an affordable partial food order when the full delivered quote exceeds the budget', () => {
+    const config = scenario([earth, colony({ treasury: 400_000 })]);
+    config.constants = {
+      ...config.constants,
+      contracts: { ...config.constants.contracts, freightFeeMarkup: 0.1 },
+    };
+    const w = starve(createWorld(config, eph));
+    const buyer = w.settlements.get('col')!;
+    w.advanceTo(START_JD + 1);
+
+    expect(open(w, 'food')).toHaveLength(1);
+    const order = open(w, 'food')[0]!;
+    expect(order.qty).toBeGreaterThan(0);
+    expect(order.qty).toBeLessThan(w.constants.contracts.maxContractQtyT);
+    expect(outstanding(order)).toBeLessThanOrEqual(
+      buyer.treasury * w.constants.contracts.maxTreasuryFraction,
+    );
+    expect(buyer.committed).toBeCloseTo(promised(w), 3);
+  });
+
   it('chooses freight from a cheap nearby source, reserving goods and funds until loading', () => {
     const farm = colony({
       id: 'farm',

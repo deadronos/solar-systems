@@ -261,49 +261,51 @@ function post(
   const unitReward = deliveryUnitReward(world, buyer, good);
   const escalation = buyer.orderEscalation[good] ?? 1;
   qty = Math.min(qty, Math.floor(budget / unitReward));
-  if (qty < 1) return;
-
-  // Freight: reserve the goods at the best source now and pay a carrier only to haul them.
-  // The buyer pays for the goods when they are loaded (escrow) and the fee on delivery.
-  const source = bestSource(world, buyer, good, qty);
-  if (source) {
-    const trip = source.trip;
-    {
-      const fee = trip.cost * c.freightFeeMarkup * escalation;
-      const total = source.price * qty + fee;
+  while (qty >= 1) {
+    // Freight reserves the goods at pickup and pays the carrier only to haul them.
+    const source = bestSource(world, buyer, good, qty);
+    if (source) {
+      const fee = source.trip.cost * c.freightFeeMarkup * escalation;
+      const escrowCost = source.price * qty;
+      const total = escrowCost + fee;
       if (total < e.price * qty && total <= budget) {
         if (!source.s.isDeepMarket) source.s.market[good].stock -= qty;
         addContract(world, {
-          escrowCost: source.price * qty,
+          escrowCost,
           kind: 'freight',
           settlementId: buyer.id,
           pickupSettlementId: source.s.id,
           good,
           qty,
           reward: fee,
-          deadlineDays: Math.max(c.minDeadlineDays, c.deadlineTripMultiple * trip.days),
+          deadlineDays: Math.max(c.minDeadlineDays, c.deadlineTripMultiple * source.trip.days),
         });
         return;
       }
     }
-  }
 
-  // Delivery: the carrier sources the cargo wherever it likes. The reward covers the
-  // goods at local value plus the premium and the expected cost of hauling them.
-  const trip = source?.trip ?? null;
-  const reward = deliveryReward(world, buyer, good, qty, trip);
-  if (reward > budget) return;
-  addContract(world, {
-    escrowCost: 0,
-    kind: 'delivery',
-    settlementId: buyer.id,
-    pickupSettlementId: null,
-    good,
-    qty,
-    reward,
-    unitReward,
-    deadlineDays: Math.max(c.minDeadlineDays, c.deadlineTripMultiple * (trip?.days ?? 0)),
-  });
+    // Delivery pays the carrier for goods at local value plus the premium and haulage.
+    const trip = source?.trip ?? null;
+    const reward = deliveryReward(world, buyer, good, qty, trip);
+    if (reward <= budget) {
+      addContract(world, {
+        escrowCost: 0,
+        kind: 'delivery',
+        settlementId: buyer.id,
+        pickupSettlementId: null,
+        good,
+        qty,
+        reward,
+        unitReward,
+        deadlineDays: Math.max(c.minDeadlineDays, c.deadlineTripMultiple * (trip?.days ?? 0)),
+      });
+      return;
+    }
+
+    if (!survival) return;
+    // Requote at a smaller load because its sourcing, ship class and fuel can change.
+    qty = Math.floor(qty / 2);
+  }
 }
 
 /**
