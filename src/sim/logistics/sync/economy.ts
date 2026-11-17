@@ -200,10 +200,10 @@ export class WorkerEconomy implements EconomyBackend {
   }
 
   advance(targetJd: number): void {
-    if (this.failure) return;
-    if (!this.#port) this.#start();
+    if (!this.failure && !this.#port) this.#start();
     for (const d of this.#pending) applyDelta(this.world, d);
     this.#pending.length = 0;
+    if (this.failure) return;
     if (targetJd > this.#sentTarget && this.#port) {
       this.#sentTarget = targetJd;
       // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a Worker, not a window
