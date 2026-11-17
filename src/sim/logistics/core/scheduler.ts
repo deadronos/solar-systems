@@ -36,8 +36,8 @@ export class Scheduler<T> {
     return this.#heap[0]?.jd;
   }
 
-  /** Remove and return the earliest item due at or before `jd`. */
-  popDue(jd: number): T | undefined {
+  /** Remove and return the earliest entry due at or before `jd`. */
+  popDue(jd: number): Entry<T> | undefined {
     const top = this.#heap[0];
     if (!top || top.jd > jd) return undefined;
     const last = this.#heap.pop()!;
@@ -45,7 +45,7 @@ export class Scheduler<T> {
       this.#heap[0] = last;
       this.#down(0);
     }
-    return top.item;
+    return top;
   }
 
   #less(a: Entry<T>, b: Entry<T>): boolean {

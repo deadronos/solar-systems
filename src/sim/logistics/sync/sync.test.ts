@@ -97,6 +97,8 @@ describe('economy worker', () => {
       });
       reference.advanceTo(replica.jd);
       expect(view(replica)).toBe(view(reference));
+      const arrivals = replica.events.recent(200, (event) => event.type === 'ShipArrived');
+      expect(arrivals.some(({ jd }) => (jd - scenario.startJd) % 0.25 !== 0)).toBe(true);
       expect(replica.events.recent(1, (e) => e.type === 'ShipIntentChanged')).toHaveLength(1);
       const posted = [...replica.contracts.values()];
       expect(posted.length).toBeGreaterThan(0);

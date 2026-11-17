@@ -3,6 +3,7 @@ import { DEFAULT_CATALOG } from '../../data/catalog.ts';
 import { Ephemeris } from '../../world/ephemeris.ts';
 import { EventLog } from './events.ts';
 import { Scheduler } from './scheduler.ts';
+import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { START_JD } from './time.ts';
 import { LogisticsWorld, minimalScenario } from './world.ts';
 
@@ -16,9 +17,9 @@ describe('Scheduler', () => {
     s.schedule(5, 'c');
     expect(s.peekJd()).toBe(3);
     expect([s.popDue(10), s.popDue(10), s.popDue(10), s.popDue(10)]).toEqual([
-      'a',
-      'b',
-      'c',
+      { jd: 3, seq: 1, item: 'a' },
+      { jd: 5, seq: 0, item: 'b' },
+      { jd: 5, seq: 2, item: 'c' },
       undefined,
     ]);
   });
@@ -132,14 +133,36 @@ describe('LogisticsWorld', () => {
 
   it('runs scheduled items in time order before the tick containing them', () => {
     const order: string[] = [];
-    const w = new LogisticsWorld(minimalScenario(1), eph, (_, action) => {
-      if (action.kind === 'depart') order.push(action.shipId);
+    const w = new LogisticsWorld(minimalScenario(1), eph, (_, action, dueJd) => {
+      if (action.kind === 'depart') order.push(`${action.shipId}@${(dueJd - START_JD).toFixed(2)}`);
     });
     w.schedule(START_JD + 0.3, { kind: 'depart', shipId: 'b' });
     w.schedule(START_JD + 0.1, { kind: 'depart', shipId: 'a' });
     w.addPhase('probe', () => order.push(`tick@${(w.jd - START_JD).toFixed(2)}`));
+    w.schedule(START_JD + 0.1, { kind: 'depart', shipId: 'c' });
     w.advanceTo(START_JD + 0.5);
-    expect(order).toEqual(['a', 'tick@0.25', 'b', 'tick@0.50']);
+    expect(order).toEqual(['a@0.10', 'c@0.10', 'tick@0.25', 'b@0.30', 'tick@0.50']);
+  });
+
+  it('timestamps scheduled events at their due times', () => {
+    const w = new LogisticsWorld(
+      { ...minimalScenario(1), personalities: DEFAULT_SCENARIO.personalities },
+      eph,
+    );
+    const due = START_JD + 0.24;
+    w.schedule(due, { kind: 'spawnEntrant' });
+    w.schedule(due, { kind: 'spawnEntrant' });
+    w.schedule(START_JD + 0.12, { kind: 'spawnEntrant' });
+    w.advanceTo(START_JD + 0.25);
+
+    const events = w.events.recent(3, (e) => e.type === 'CompanyFounded').toReversed();
+    expect(events.map(({ jd }) => jd)).toEqual([START_JD + 0.12, due, due]);
+    expect(events.map((event) => 'companyId' in event && event.companyId)).toEqual([
+      'company-1',
+      'company-2',
+      'company-3',
+    ]);
+    expect(w.jd).toBe(START_JD + 0.25);
   });
 
   it('budgeted advance lags but converges to the same state', () => {

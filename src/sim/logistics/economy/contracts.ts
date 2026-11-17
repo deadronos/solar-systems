@@ -431,7 +431,11 @@ function addContract(
  * Deadline handler: open → expired; accepted/loaded → expired with a carrier penalty, paid
  * to the settlement that posted the order.
  */
-export function expireContract(world: LogisticsWorld, contractId: string): void {
+export function expireContract(
+  world: LogisticsWorld,
+  contractId: string,
+  eventJd = world.jd,
+): void {
   const c = world.contracts.get(contractId);
   if (!c || c.status === 'completed' || c.status === 'expired' || c.late) return;
   let penalty = 0;
@@ -447,7 +451,7 @@ export function expireContract(world: LogisticsWorld, contractId: string): void 
   // the carrier's cargo to sell.
   if (c.status === 'loaded') {
     c.late = true;
-    world.events.append(world.jd, {
+    world.events.append(eventJd, {
       type: 'ContractExpired',
       contractId: c.id,
       settlementId: c.settlementId,
@@ -477,7 +481,7 @@ export function expireContract(world: LogisticsWorld, contractId: string): void 
     }
   }
   c.status = 'expired';
-  world.events.append(world.jd, {
+  world.events.append(eventJd, {
     type: 'ContractExpired',
     contractId: c.id,
     settlementId: c.settlementId,
