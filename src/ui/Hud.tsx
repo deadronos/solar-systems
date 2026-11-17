@@ -1,3 +1,4 @@
+import { useId, useState } from 'react';
 import { useSimulation } from '../render/index.ts';
 import { useSelectionStore } from '../state/selectionStore.ts';
 import { BodyPicker } from './BodyPicker.tsx';
@@ -10,8 +11,19 @@ import { Ledgers } from './logistics/Ledgers.tsx';
 import { TopBar } from './logistics/TopBar.tsx';
 import { TimeControls } from './TimeControls.tsx';
 
+const MOBILE_PANELS = [
+  { id: 'ledgers', label: 'Ledgers' },
+  { id: 'details', label: 'Details' },
+  { id: 'layers', label: 'Layers' },
+  { id: 'activity', label: 'Activity' },
+] as const;
+
+type MobilePanel = (typeof MOBILE_PANELS)[number]['id'];
+
 /** DOM overlay. Reads the sim through the context API only; never touches three.js. */
 export function Hud() {
+  const panelId = useId();
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
   const economy = useSimulation().logistics !== null;
   const selected = useSelectionStore((s) => s.selected);
   const selectedKey = selected ? `${selected.kind}:${selected.id}` : '';
@@ -22,25 +34,62 @@ export function Hud() {
           <TopBar />
         </div>
       )}
-      <div className="hud__left">
+      {economy && (
+        <nav className="hud__mobile-nav" aria-label="Map panels">
+          {MOBILE_PANELS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              aria-controls={`${panelId}-${id}`}
+              aria-expanded={mobilePanel === id}
+              onClick={() => setMobilePanel((open) => (open === id ? null : id))}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
+      <div
+        className="hud__left"
+        id={`${panelId}-ledgers`}
+        data-mobile-open={mobilePanel === 'ledgers'}
+      >
         <ErrorBoundary label="ledger">{economy ? <Ledgers /> : <BodyPicker />}</ErrorBoundary>
       </div>
       <div className="hud__right">
-        {economy ? (
-          <ErrorBoundary label="inspector" resetKey={selectedKey}>
-            <Inspector />
-          </ErrorBoundary>
-        ) : (
-          <InfoPanel />
-        )}
-        <LayerToggles />
+        <div
+          className="hud__drawer"
+          id={`${panelId}-details`}
+          data-mobile-open={mobilePanel === 'details'}
+        >
+          {economy ? (
+            <ErrorBoundary label="inspector" resetKey={selectedKey}>
+              <Inspector />
+            </ErrorBoundary>
+          ) : (
+            <InfoPanel />
+          )}
+        </div>
+        <div
+          className="hud__drawer"
+          id={`${panelId}-layers`}
+          data-mobile-open={mobilePanel === 'layers'}
+        >
+          <LayerToggles />
+        </div>
       </div>
       <div className="hud__bottom">
         <TimeControls />
         {economy && (
-          <ErrorBoundary label="activity feed">
-            <EventFeed />
-          </ErrorBoundary>
+          <div
+            className="hud__drawer"
+            id={`${panelId}-activity`}
+            data-mobile-open={mobilePanel === 'activity'}
+          >
+            <ErrorBoundary label="activity feed">
+              <EventFeed />
+            </ErrorBoundary>
+          </div>
         )}
         <p className="hint">
           {economy

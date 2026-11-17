@@ -811,3 +811,159 @@ button {
 .toggle--overlay {
   color: #ffe2a8;
 }
+
+.hud__mobile-nav {
+  display: none;
+}
+
+/* Keep the existing panel layout when there's room for the sidebars. */
+.hud__drawer {
+  display: contents;
+}
+
+@media (max-width: 760px) {
+  .hud--economy {
+    grid-template: auto auto minmax(0, 1fr) auto / minmax(0, 1fr);
+    gap: 6px;
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+
+  .hud--economy .hud__top {
+    grid-area: 1 / 1;
+  }
+
+  .hud--economy .topbar {
+    width: 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 3px 8px;
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+
+  .hud__mobile-nav {
+    grid-area: 2 / 1;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .hud__mobile-nav button {
+    min-height: 44px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--panel);
+  }
+
+  .hud__mobile-nav button[aria-expanded='true'] {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .hud--economy .hud__right,
+  .hud--economy .hud__bottom {
+    display: contents;
+  }
+
+  .hud--economy .hud__left,
+  .hud--economy .hud__drawer {
+    display: none;
+    grid-area: 3 / 1;
+    align-self: start;
+    min-width: 0;
+    max-height: 78%;
+    pointer-events: none;
+  }
+
+  .hud--economy [data-mobile-open='true'] {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .hud--economy .hud__drawer > * {
+    pointer-events: auto;
+  }
+
+  .hud--economy .ledgers {
+    align-self: stretch;
+    width: 100%;
+    min-height: 0;
+  }
+
+  .hud--economy .tabs {
+    display: grid;
+    grid-template-columns: 1.35fr repeat(4, minmax(0, 1fr));
+  }
+
+  .hud--economy .tab {
+    min-height: 44px;
+    padding: 3px;
+  }
+
+  .hud--economy .ledgers__body {
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .hud--economy .picker__item,
+  .hud--economy .ledger .link,
+  .hud--economy .toggle {
+    min-height: 44px;
+  }
+
+  .hud--economy .ledger .link {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .hud--economy .info,
+  .hud--economy .layers {
+    overflow: auto;
+  }
+
+  .hud--economy .feed {
+    width: 100%;
+    min-height: 0;
+  }
+
+  .hud--economy .feed__head {
+    flex-wrap: wrap;
+  }
+
+  .hud--economy .time-controls {
+    grid-area: 4 / 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 8px;
+    padding: 6px 10px;
+  }
+
+  .hud--economy .clock,
+  .hud--economy .rate__label {
+    min-width: 0;
+  }
+
+  .hud--economy .time-controls button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 6px;
+  }
+
+  .hud--economy .rate {
+    grid-column: 1 / -1;
+    min-height: 28px;
+  }
+
+  .hud--economy .rate input {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+
+  .hud--economy .hint {
+    display: none;
+  }
+}
