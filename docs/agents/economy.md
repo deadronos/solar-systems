@@ -216,7 +216,10 @@ falls below `contracts.postThreshold` times the desired level (half by default):
 - Unfilled buy orders expire and are reposted with fees raised by 1.5× per expiry (capped at 8× by default).
   Accepted contracts that expire, or are abandoned, fine the carrier `penaltyFraction` of the
   reward (of the price, for sell orders), paid to the settlement that posted the order.
-  Loaded freight stays deliverable ("late").
+  Loaded freight stays deliverable ("late"). The loaded contract reserves its quantity of
+  the good in the ship's hold. The carrier can sell any surplus of that good on the spot
+  market. Delivery unloads only the contract quantity. The reservation uses existing ship
+  and contract state, including when restored from a snapshot.
 
 **Treasury invariant** (`economy/treasury.ts`): every promise to a live contract is
 `settlement.committed`, equal to the sum of `outstanding(c)` (reward, plus escrow until

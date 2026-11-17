@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_CATALOG } from '../../data/catalog.ts';
 import { Ephemeris } from '../../world/ephemeris.ts';
 import { START_JD } from '../core/time.ts';
-import { createWorld } from '../createWorld.ts';
+import { createWorld, restoreWorld, snapshotWorld } from '../createWorld.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { SETTLEMENTS } from '../data/settlements.ts';
 import { expireContract, lifeSupportShare } from './contracts.ts';
@@ -123,6 +123,75 @@ describe('contracts', () => {
     expect(pickup.treasury).toBeCloseTo(pickupCash + c.escrowCost, 3);
     expect(buyer.committed).toBeCloseTo(committed - c.escrowCost, 3);
     expect(buyer.committed).toBeCloseTo(promised(w), 3);
+  });
+
+  it('reserves loaded freight through spot sales, snapshot restore and late delivery', () => {
+    const farm = colony({
+      id: 'farm',
+      site: { bodyId: 'phobos', kind: 'surface' },
+      population: 100,
+      facilities: [{ recipeId: 'grow_food', maxRatePerDay: 50 }],
+      initialStock: { water: 1e6, oxygen: 1e5, food: 50_000 },
+    });
+    const carrier: CompanyDef = {
+      id: 't',
+      name: 'Carrier',
+      color: '#fff',
+      personalityId: 'bulk',
+      cash: 1e9,
+      ships: [{ classId: 'chem-hauler', siteId: 'farm', name: 'Hauler' }],
+    };
+    const w = starve(createWorld(scenario([earth, colony(), farm], [carrier]), eph));
+    w.advanceTo(START_JD + 1);
+    const freight = open(w, 'food')[0]!;
+    const { id: shipId } = [...w.ships.values()][0]!;
+    expect(freight.kind).toBe('freight');
+    expect(
+      w.issue(carrier.id, [
+        { type: 'BuyCargo', shipId, good: 'food', qty: 100, maxPrice: Infinity },
+        { type: 'AcceptContract', contractId: freight.id, shipId },
+        { type: 'LoadContractCargo', contractId: freight.id },
+      ]),
+    ).toEqual([true, true, true]);
+
+    // Use the existing snapshot format, with the reservation derived from the loaded contract.
+    const restored = restoreWorld(JSON.parse(JSON.stringify(snapshotWorld(w))), eph);
+    const ship = restored.ships.get(shipId)!;
+    const pickup = restored.settlements.get(farm.id)!;
+    const buyer = restored.settlements.get('col')!;
+    const company = restored.companies.get(carrier.id)!;
+    pickup.market.food.stock = 0; // Give the pickup room to buy the spot cargo.
+    const sell = (qty: number) =>
+      restored.issue(carrier.id, [{ type: 'SellCargo', shipId, good: 'food', qty, minPrice: 0 }]);
+    const cash = company.cash;
+    expect(sell(101)).toEqual([false]);
+    expect(restored.events.recent(1)[0]).toMatchObject({
+      type: 'CommandRejected',
+      reason: 'cargo-reserved',
+    });
+    expect(ship.cargo.food).toBe(freight.qty + 100);
+    expect(pickup.market.food.stock).toBe(0);
+    expect(company.cash).toBe(cash);
+    expect(sell(90)).toEqual([true]);
+
+    expireContract(restored, freight.id);
+    expect(restored.contracts.get(freight.id)).toMatchObject({ status: 'loaded', late: true });
+    expect(sell(11)).toEqual([false]);
+    expect(sell(5)).toEqual([true]);
+    expect(ship.cargo.food).toBe(freight.qty + 5);
+
+    expect(
+      restored.issue(carrier.id, [{ type: 'PlanAndDispatch', shipId, toSiteId: buyer.id }]),
+    ).toEqual([true]);
+    restored.advanceTo(ship.plan!.arriveJd + 0.25);
+    const buyerStock = buyer.market.food.stock;
+    expect(
+      restored.issue(carrier.id, [{ type: 'DeliverContract', contractId: freight.id }]),
+    ).toEqual([true]);
+    expect(buyer.market.food.stock).toBe(buyerStock + freight.qty);
+    expect(ship.cargo.food).toBe(5);
+    expect(ship.contractId).toBeNull();
+    expect(restored.contracts.get(freight.id)?.status).toBe('completed');
   });
 
   it('never commits more than the treasury holds and keeps committed funds in reserve', () => {

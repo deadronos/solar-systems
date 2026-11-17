@@ -259,7 +259,18 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       const ship = getShip(world, companyId, cmd.shipId);
       const site = dockedAt(world, ship);
       if (!(cmd.qty > 0)) reject('bad-quantity');
-      if ((ship.cargo[cmd.good] ?? 0) < cmd.qty - 1e-9) reject('not-in-cargo');
+      const onBoard = ship.cargo[cmd.good] ?? 0;
+      if (onBoard < cmd.qty - 1e-9) reject('not-in-cargo');
+      // The loaded contract doubles as the buyer's reservation within the hold.
+      const contract = ship.contractId ? world.contracts.get(ship.contractId) : undefined;
+      if (
+        contract?.kind === 'freight' &&
+        contract.status === 'loaded' &&
+        contract.good === cmd.good &&
+        onBoard - cmd.qty < contract.qty
+      ) {
+        reject('cargo-reserved');
+      }
       const e = site.market[cmd.good];
       if (!site.isDeepMarket && cmd.qty > maxBuyQty(e, c.markets) + 1e-9)
         reject('market-saturated');

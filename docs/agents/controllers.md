@@ -48,6 +48,9 @@ interface CompanyController {
   `BuyCargo` therefore never leads to an empty `PlanAndDispatch`. Commands are mapped to ships
   by `shipId`, or through the contract's `shipId` (`commandShipId`).
 - Other ships' commands in the batch are unaffected.
+- `SellCargo` rejects a sale of buyer-owned freight with `cargo-reserved`. For a ship with a
+  loaded freight contract, only cargo in excess of the contract quantity for that good is available
+  to sell, including when the contract is late.
 
 To add a command: add a union member to `Command`, a `case` in `apply()` that validates fully
 (`reject('reason')`) before mutating, emit the matching event(s), and make sure
