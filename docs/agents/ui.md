@@ -48,7 +48,10 @@ Never write to the sim from the UI except through its public control API (`clock
   - `hoveredShip`: the ship under the pointer in the scene, set by `ShipLayer` on pointer
     moves when it changes (it shows that ship's label).
 - Cross-store actions live in `state/actions.ts`. For example, `focusBody` clears follow, sets
-  focus and selects. Use these actions rather than poking two stores from a component.
+  focus and selects. Inspector buttons and keyboard shortcuts use `navigateSelectionHistory`
+  to restore body focus and clear follow when history lands on a body. Other history entries
+  preserve the current camera settings. Use these actions rather than poking two stores from
+  a component.
 - Stores hold UI state only. Never copy simulation entities into them; store ids.
 
 ## Entities and formatting
