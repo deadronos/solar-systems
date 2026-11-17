@@ -2,7 +2,14 @@ import { TICK_DAYS } from '../core/time.ts';
 import { sortedIds } from '../core/sortedIds.ts';
 import type { LogisticsWorld } from '../core/world.ts';
 import { penaltyFor } from '../core/commands.ts';
-import { askPrice, quoteBuy, quoteSell, recordDeepTrade, spareStock } from './markets.ts';
+import {
+  askPrice,
+  quoteBuy,
+  quoteSell,
+  recordDeepTrade,
+  recordOfftake,
+  spareStock,
+} from './markets.ts';
 import { companyPays, creditSettlement } from './money.ts';
 import { availableFunds, commit, outstanding, release } from './treasury.ts';
 import { GOOD_IDS, type Contract, type GoodId, type Settlement } from './types.ts';
@@ -230,6 +237,7 @@ function post(
         e.stock += qty;
         if (!local.s.isDeepMarket) local.s.market[good].stock -= qty;
         recordDeepTrade(local.s, good, -qty);
+        recordOfftake(world, local.s, good, qty);
         world.events.append(world.jd, {
           type: 'LocalShuttle',
           settlementId: buyer.id,
@@ -328,6 +336,7 @@ function shuttleSurplus(world: LogisticsWorld, seller: Settlement, good: GoodId)
   creditSettlement(world, seller, proceeds);
   e.stock -= qty;
   recordDeepTrade(buyer, good, qty);
+  recordOfftake(world, seller, good, qty);
   world.events.append(world.jd, {
     type: 'LocalShuttle',
     settlementId: buyer.id,

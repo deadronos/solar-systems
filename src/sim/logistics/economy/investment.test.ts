@@ -7,6 +7,7 @@ import { createWorld } from '../createWorld.ts';
 import { DEFAULT_SCENARIO } from '../data/scenario.ts';
 import { SETTLEMENTS } from '../data/settlements.ts';
 import { outputValue } from './investment.ts';
+import { industrialStockLimit, recordOfftake, updateMarket } from './markets.ts';
 import { runProduction } from './production.ts';
 import type { ScenarioConfig, SettlementDef } from './types.ts';
 
@@ -84,6 +85,12 @@ describe('investment', () => {
       eph,
     );
     const log = record(w);
+    const s = w.settlements.get('col')!;
+    // A standing buyer clears each batch so the mine stays staffed.
+    w.addPhase('ore buyer', () => {
+      recordOfftake(w, s, 'ore', s.market.ore.stock);
+      s.market.ore.stock = 0;
+    });
     w.advanceTo(START_JD + 3 * C.industry.reviewDays + 1);
     expect(w.settlements.get('col')!.idleWorkers ?? 0).toBeLessThan(1);
     const urgent = log.filter(
@@ -132,11 +139,15 @@ describe('maintenance and the life-support reserve', () => {
     const s = w.settlements.get('col')!;
     const f = s.facilities[0]!;
     const rate0 = f.maxRatePerDay;
-    for (let i = 0; i < 1461; i++) runProduction(s, w, 0.25);
+    for (let i = 0; i < 1461; i++) {
+      s.market.ore.stock = 0;
+      runProduction(s, w, 0.25);
+    }
     expect(f.maxRatePerDay).toBe(rate0);
     s.market.machinery.stock = 0;
     for (let i = 0; i < 1461; i++) {
       s.market.machinery.stock = 0;
+      s.market.ore.stock = 0;
       runProduction(s, w, 0.25);
     }
     // Wear compounds tick by tick: about e^−wearPerYear after a year.
@@ -183,17 +194,42 @@ describe('maintenance and the life-support reserve', () => {
       return { w, s, netback };
     };
 
-    it('only the share local use absorbs earns the local price; the rest is exported', () => {
+    it('values local use and bounded outbound demand, leaving excess output unvalued', () => {
       const { w, s, netback } = shortOfFuel();
       expect(outputValue(w, s, 'fuel', 1)).toBeCloseTo(5_000, 6);
-      // A 200 t/day plant at a 2 t/day station mostly exports.
-      expect(outputValue(w, s, 'fuel', 200)).toBeCloseTo((2 * 5_000 + 198 * netback) / 200, 6);
+      const pilot = C.contracts.maxContractQtyT / C.industry.reviewDays;
+      expect(outputValue(w, s, 'fuel', 200)).toBeCloseTo((2 * 5_000 + pilot * netback) / 200, 6);
+      recordOfftake(w, s, 'fuel', 40 * C.industry.offtakeMemoryDays);
+      expect(outputValue(w, s, 'fuel', 200)).toBeCloseTo((2 * 5_000 + 40 * netback) / 200, 6);
+      updateMarket(s, w, 0.25);
+      expect(s.market.fuel.offtakePerDay).toBeCloseTo(
+        40 * (1 - 0.25 / C.industry.offtakeMemoryDays),
+      );
     });
 
-    it('counts idle capacity as supply, so a second plant is not valued as the first', () => {
+    it('allocates observed demand to idle capacity before valuing a second plant', () => {
       const { w, s, netback } = shortOfFuel();
-      s.facilities.push({ recipeId: 'water_fuel', maxRatePerDay: 10 });
-      expect(outputValue(w, s, 'fuel', 50)).toBeCloseTo(netback, 6);
+      s.facilities.push({ recipeId: 'water_fuel', maxRatePerDay: 40 });
+      s.market.fuel.offtakePerDay = 40;
+      expect(outputValue(w, s, 'fuel', 50)).toBeCloseTo((2 * netback) / 50, 6);
+      s.market.fuel.stock = industrialStockLimit(w, s.market.fuel) + 1;
+      expect(outputValue(w, s, 'fuel', 50)).toBe(0);
+    });
+
+    it('throttles industrial production at the stock limit and resumes when stock leaves', () => {
+      const w = createWorld(scenario(colony()), eph);
+      const s = w.settlements.get('col')!;
+      const e = s.market.ore;
+      const limit = industrialStockLimit(w, e);
+      e.stock = limit - 2;
+      runProduction(s, w, 0.25);
+      expect(e.stock).toBeCloseTo(limit);
+      runProduction(s, w, 0.25);
+      expect(e.stock).toBeCloseTo(limit);
+      e.stock -= 30;
+      runProduction(s, w, 0.25);
+      expect(e.stock).toBeGreaterThan(limit - 30);
+      expect(e.stock).toBeLessThanOrEqual(limit);
     });
   });
 });

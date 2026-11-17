@@ -101,6 +101,8 @@ export interface MarketEntry {
   /** Rolling daily consumption / production estimates used for target stock. */
   consumptionPerDay: number;
   productionPerDay: number;
+  /** Rolling observed tonnes leaving this market per day, absent in older snapshots. */
+  offtakePerDay?: number;
   /** Last price announced via PriceChanged. */
   lastAnnouncedPrice: number;
   /** Date of that announcement; absent until the first one (and in older snapshots). */
@@ -346,6 +348,8 @@ export interface EconomyConstants {
     projectTimeoutDays: number;
     maxPaybackDays: number;
     exportNetback: number;
+    offtakeMemoryDays: number;
+    exportBufferOrders: number;
     survivalMargin: number;
     minUtilisation: number;
     maintenancePerWorkerDay: number;

@@ -3,14 +3,14 @@ import { TICK_DAYS } from '../core/time.ts';
 import type { LogisticsWorld } from '../core/world.ts';
 import { fmtMoney } from '../format.ts';
 import { survivalReserve } from './contracts.ts';
+import { industrialStockLimit } from './markets.ts';
 import { availableFunds } from './treasury.ts';
 import type { GoodId, InvestmentProject, Recipe, RecipeLine, Settlement } from './types.ts';
 
 /**
  * Settlements invest in industry (#14). Every `industry.reviewDays` a settlement without a
  * project picks the facility to expand or build that adds the most margin per day, given its
- * idle workers, its local prices and Earth's prices for output nobody here uses. Short life
- * support jumps the queue. The project then waits for its build kit (machinery and steel),
+ * idle workers, local use and observed outbound trade. Short life support jumps the queue. The project then waits for its build kit (machinery and steel),
  * which the settlement imports through ordinary buy orders, and completes when the kit is in
  * stock.
  */
@@ -234,10 +234,9 @@ function earthPrice(world: LogisticsWorld, good: GoodId): number {
 
 /**
  * Average value per tonne of `addPerDay` more output: the local price for the part that
- * fills the gap between local use and local output, and what exporting the rest to Earth
- * would net after hauling. Pricing all of a big plant's output at a scarce local price made
- * a 195 t/day fuel plant look like it paid back in weeks at a station using a few tonnes a
- * day; it then bankrupted the station importing water to feed it.
+ * fills unmet local use, plus netback for the fraction supported by outbound demand. One
+ * lot per review period lets a new producer start trading before it has a sales history.
+ * Existing capacity counts against both amounts.
  */
 export function outputValue(
   world: LogisticsWorld,
@@ -247,12 +246,17 @@ export function outputValue(
 ): number {
   const e = s.market[good];
   const netback = earthPrice(world, good) * world.constants.industry.exportNetback;
-  if (!(addPerDay > 0)) return e.productionPerDay < e.consumptionPerDay ? e.price : netback;
+  if (!(addPerDay > 0) || e.stock > industrialStockLimit(world, e)) return 0;
   // Capacity counts as supply even while idle (short of inputs), or a second plant looks
   // as needed as the first.
   const supply = Math.max(e.productionPerDay, outputCapacity(world, s, good));
   const local = Math.min(addPerDay, Math.max(0, e.consumptionPerDay - supply));
-  return (local * e.price + (addPerDay - local) * netback) / addPerDay;
+  const spareCapacity = Math.max(0, supply - e.consumptionPerDay);
+  const pilotDemand =
+    world.constants.contracts.maxContractQtyT / world.constants.industry.reviewDays;
+  const exportRoom = Math.max(0, Math.max(e.offtakePerDay ?? 0, pilotDemand) - spareCapacity);
+  const exports = Math.min(addPerDay - local, exportRoom);
+  return (local * e.price + exports * netback) / addPerDay;
 }
 
 /** Tonnes per day of `good` the settlement's facilities can make at full rate. */

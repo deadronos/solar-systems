@@ -250,6 +250,29 @@ export function deepPriceFor(
   return base * Math.min(c.deepPriceClampMax, Math.max(c.deepPriceClampMin, raw));
 }
 
+/** Count stock sold or collected, not goods merely reserved by an open order. */
+export function recordOfftake(
+  world: LogisticsWorld,
+  s: Settlement,
+  good: GoodId,
+  qty: number,
+): void {
+  if (s.isDeepMarket) return;
+  const entry = s.market[good];
+  entry.offtakePerDay =
+    (entry.offtakePerDay ?? 0) + qty / world.constants.industry.offtakeMemoryDays;
+}
+
+/** Leave enough stock for a market reserve and an export buffer. */
+export function industrialStockLimit(world: LogisticsWorld, e: MarketEntry): number {
+  const c = world.constants.contracts;
+  const outboundBuffer = (e.offtakePerDay ?? 0) * world.constants.markets.bufferDays;
+  return (
+    c.sellOrderStockMultiple * e.targetStock +
+    Math.max(c.maxContractQtyT * world.constants.industry.exportBufferOrders, outboundBuffer)
+  );
+}
+
 export function addDemand(s: Settlement, good: keyof Settlement['market'], qty: number): void {
   s.flows.demand[good] = (s.flows.demand[good] ?? 0) + qty;
 }
@@ -276,6 +299,9 @@ export function updateMarket(s: Settlement, world: LogisticsWorld, dtDays: numbe
       const sold = e.netSoldT ?? 0;
       if (sold !== 0) e.netSoldT = sold - sold * Math.min(1, dtDays / c.deepMarketRecoveryDays);
     } else {
+      if (e.offtakePerDay !== undefined) {
+        e.offtakePerDay *= 1 - Math.min(1, dtDays / world.constants.industry.offtakeMemoryDays);
+      }
       const demand = (s.flows.demand[g] ?? 0) / dtDays;
       const supply = (s.flows.supply[g] ?? 0) / dtDays;
       e.consumptionPerDay += (demand - e.consumptionPerDay) * k;

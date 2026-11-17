@@ -1,6 +1,6 @@
 import type { LogisticsWorld } from '../core/world.ts';
 import { sortedIds } from '../core/sortedIds.ts';
-import { addDemand, addSupply, askPrice, bidPrice } from './markets.ts';
+import { addDemand, addSupply, askPrice, bidPrice, industrialStockLimit } from './markets.ts';
 import type { Facility, GoodId, Recipe, Settlement } from './types.ts';
 
 const producesSurvival = (world: LogisticsWorld, recipeId: string): boolean =>
@@ -60,6 +60,13 @@ export function runProduction(s: Settlement, world: LogisticsWorld, dtDays: numb
     let rate = f.maxRatePerDay;
     if (recipe.workersPerUnitPerDay > 0)
       rate = Math.min(rate, workers / recipe.workersPerUnitPerDay);
+    if (!lifeSupport) {
+      for (const o of recipe.outputs) {
+        const e = s.market[o.good];
+        const headroom = Math.max(0, industrialStockLimit(world, e) - e.stock);
+        rate = Math.min(rate, headroom / (o.qty * dtDays));
+      }
+    }
     const nominal = rate;
     for (const i of recipe.inputs) {
       rate = Math.min(rate, usable(i.good) / (i.qty * dtDays));

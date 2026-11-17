@@ -1,4 +1,11 @@
-import { addDemand, maxBuyQty, quoteBuy, quoteSell, recordDeepTrade } from '../economy/markets.ts';
+import {
+  addDemand,
+  maxBuyQty,
+  quoteBuy,
+  quoteSell,
+  recordDeepTrade,
+  recordOfftake,
+} from '../economy/markets.ts';
 import { buyShip, companyPays, creditSettlement, external } from '../economy/money.ts';
 import type { Company, Contract, GoodId, Settlement, Ship } from '../economy/types.ts';
 import { planTrip } from '../navigation/planner.ts';
@@ -242,6 +249,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       spend(world, company, ship, price * cmd.qty, site);
       if (!site.isDeepMarket) e.stock -= cmd.qty;
       recordDeepTrade(site, cmd.good, -cmd.qty);
+      recordOfftake(world, site, cmd.good, cmd.qty);
       ship.cargo[cmd.good] = (ship.cargo[cmd.good] ?? 0) + cmd.qty;
       setOrigin(ship, cmd.good, site);
       world.events.append(world.jd, {
@@ -337,6 +345,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
         spend(world, company, ship, contract.escrowCost, site);
         ship.cargo[contract.good] = (ship.cargo[contract.good] ?? 0) + contract.qty;
         setOrigin(ship, contract.good, site);
+        recordOfftake(world, site, contract.good, contract.qty);
         contract.status = 'completed';
         ship.contractId = null;
         company.stats.contractsCompleted++;
@@ -355,6 +364,7 @@ function apply(world: LogisticsWorld, companyId: string, cmd: Command): void {
       ship.cargo[contract.good] = (ship.cargo[contract.good] ?? 0) + contract.qty;
       contract.status = 'loaded';
       recordDeepTrade(site, contract.good, -contract.qty);
+      recordOfftake(world, site, contract.good, contract.qty);
       // The buyer pays the pickup for the escrowed goods once they are aboard.
       const buyer = world.settlements.get(contract.settlementId);
       if (buyer) {

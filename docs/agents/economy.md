@@ -147,6 +147,10 @@ the command returns `false`. Validation checks ownership, docking, cash, stock a
   - **Maintenance:** employed workers wear out `industry.maintenancePerWorkerDay` of
     machinery. A shortfall wears every facility's capacity by up to `wearPerYear`
     (compounding per tick, floored at `minRatePerDay`).
+  - Industrial output is limited by remaining warehouse headroom. The limit is the sell-order
+    stock threshold plus the larger of `industry.exportBufferOrders` full orders or a buffer
+    for observed outbound volume. This lets producers build stock before their first sale. Life support keeps priority and is
+    exempt from the industrial limit.
   - Each facility keeps a rolling `utilisation`; `idleWorkers` records unemployment.
 - **Population** (`population.ts`):
   - Consumes survival, basic and comfort needs, and updates satisfaction EMAs.
@@ -167,8 +171,14 @@ no project and idle workers evaluates every recipe in sorted id order:
 - **Margin per day** = added rate × (outputs − inputs) − maintenance. Output is worth the
   local price only for the share that fills the gap between local use and local supply
   (the larger of actual output and installed capacity, so an idle plant still counts); the
-  rest is worth Earth's price × `exportNetback` (`outputValue`). Inputs that local output
-  can't cover cost the import price (the dearer of local and Earth's).
+  remaining output earns Earth's price × `exportNetback` up to the outbound demand that
+  installed capacity cannot already serve (`outputValue`). Outbound demand uses recent
+  shipments with a floor of one full order per investment review period to support new
+  producers. Excess inventory above the industrial stock limit makes marginal output worthless. Inputs that
+  local output can't cover cost the import price (the dearer of local and Earth's).
+- Actual spot purchases, freight and sell-order pickups, and local shuttles update
+  `offtakePerDay`. Open orders and reserved stock do not count. The rate decays over
+  `industry.offtakeMemoryDays`; snapshots without it start at zero.
 - A **build kit** (`kitPerWorker` × added workers: machinery and steel) must be affordable
   from funds beyond the survival reserve and pay back within `maxPaybackDays`.
 - **Urgent life support** (a survival output below `survivalMargin` × consumption) wins
