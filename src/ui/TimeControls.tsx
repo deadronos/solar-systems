@@ -31,7 +31,13 @@ export function TimeControls() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
+      if (
+        e.defaultPrevented ||
+        (e.target instanceof HTMLElement &&
+          (e.target.isContentEditable ||
+            e.target.closest('button, input, select, textarea, a[href]')))
+      )
+        return;
       if (e.code === 'Space') {
         e.preventDefault();
         clock.togglePaused();
@@ -55,6 +61,7 @@ export function TimeControls() {
           <button
             type="button"
             title="Reverse time (R)"
+            aria-label="Reverse time"
             className={rate < 0 ? 'active' : ''}
             onClick={() => clock.setRate(-rate)}
           >
@@ -64,6 +71,7 @@ export function TimeControls() {
         <button
           type="button"
           title="Slower ([)"
+          aria-label="Slower"
           onClick={() => setIndex(index - 1)}
           disabled={index === 0}
         >
@@ -72,6 +80,7 @@ export function TimeControls() {
         <button
           type="button"
           title="Play / pause (Space)"
+          aria-label={paused ? 'Play' : 'Pause'}
           className="primary"
           onClick={() => clock.togglePaused()}
         >
@@ -80,13 +89,19 @@ export function TimeControls() {
         <button
           type="button"
           title="Faster (])"
+          aria-label="Faster"
           onClick={() => setIndex(index + 1)}
           disabled={index >= maxIndex}
         >
           ▶▶
         </button>
         {!economy && (
-          <button type="button" title="Jump to now (N)" onClick={() => clock.resetToNow()}>
+          <button
+            type="button"
+            title="Jump to now (N)"
+            aria-label="Jump to now"
+            onClick={() => clock.resetToNow()}
+          >
             Now
           </button>
         )}

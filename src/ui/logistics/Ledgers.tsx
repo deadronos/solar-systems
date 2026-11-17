@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState, type KeyboardEvent } from 'react';
 import { netWorth } from '../../sim/logistics/index.ts';
 import { useSelectionStore } from '../../state/selectionStore.ts';
 import { BodyPicker } from '../BodyPicker.tsx';
@@ -18,16 +18,45 @@ const TABS: { id: Tab; label: string }[] = [
 export function Ledgers() {
   const world = useWorld();
   const [tab, setTab] = useState<Tab>(world ? 'companies' : 'bodies');
+  const id = useId();
   if (!world) return <BodyPicker />;
+
+  const navigateTab = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let next: number;
+    switch (event.key) {
+      case 'ArrowLeft':
+        next = (index + TABS.length - 1) % TABS.length;
+        break;
+      case 'ArrowRight':
+        next = (index + 1) % TABS.length;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = TABS.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    const target = TABS[next]!;
+    setTab(target.id);
+    document.getElementById(`${id}-${target.id}`)?.focus();
+  };
   return (
     <nav className="panel ledgers" aria-label="Ledgers">
-      <div className="tabs" role="tablist">
-        {TABS.map((t) => (
+      <div className="tabs" role="tablist" aria-label="Ledger views">
+        {TABS.map((t, index) => (
           <button
             key={t.id}
             type="button"
             role="tab"
+            id={`${id}-${t.id}`}
             aria-selected={tab === t.id}
+            aria-controls={`${id}-panel`}
+            tabIndex={tab === t.id ? 0 : -1}
+            onKeyDown={(event) => navigateTab(event, index)}
             className={`tab ${tab === t.id ? 'tab--active' : ''}`}
             onClick={() => setTab(t.id)}
           >
@@ -35,7 +64,13 @@ export function Ledgers() {
           </button>
         ))}
       </div>
-      <div className="ledgers__body">
+      <div
+        className="ledgers__body"
+        id={`${id}-panel`}
+        role="tabpanel"
+        aria-labelledby={`${id}-${tab}`}
+        tabIndex={0}
+      >
         {tab === 'bodies' && <BodyPicker embedded />}
         {tab === 'companies' && <Companies />}
         {tab === 'settlements' && <Settlements />}
@@ -81,6 +116,8 @@ function Companies() {
                 type="button"
                 className={`chip ${filter === c.id ? 'chip--on' : ''}`}
                 title="Show only this company on the map"
+                aria-label={`Filter map to ${c.name}`}
+                aria-pressed={filter === c.id}
                 onClick={() => setFilter(filter === c.id ? null : c.id)}
               >
                 ◉
