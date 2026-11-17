@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useSimulation } from '../../render/index.ts';
 import { netWorth } from '../../sim/logistics/index.ts';
+import { navigateSelectionHistory } from '../../state/actions.ts';
 import { useSelectionStore } from '../../state/selectionStore.ts';
 import { formatRate, formatRateValue } from '../format.ts';
 import { EntityLink, useTick } from './common.tsx';
@@ -72,8 +73,10 @@ function useKeyboardShortcuts() {
       const s = useSelectionStore.getState();
       if (e.key === 'Escape') s.select(null);
       else if ((e.key === 'f' || e.key === 'F') && s.selected) s.setFollow(!s.follow);
-      else if (e.altKey && e.key === 'ArrowLeft') s.back();
-      else if (e.altKey && e.key === 'ArrowRight') s.forward();
+      else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        if (navigateSelectionHistory(e.key === 'ArrowLeft' ? 'back' : 'forward'))
+          e.preventDefault();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

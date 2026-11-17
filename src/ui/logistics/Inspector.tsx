@@ -1,3 +1,4 @@
+import { navigateSelectionHistory } from '../../state/actions.ts';
 import { useSelectionStore } from '../../state/selectionStore.ts';
 import { InfoPanel } from '../InfoPanel.tsx';
 import { useWorld } from './common.tsx';
@@ -12,8 +13,6 @@ export function Inspector() {
   const selected = useSelectionStore((s) => s.selected);
   const history = useSelectionStore((s) => s.history);
   const future = useSelectionStore((s) => s.future);
-  const back = useSelectionStore((s) => s.back);
-  const forward = useSelectionStore((s) => s.forward);
   const follow = useSelectionStore((s) => s.follow);
   const setFollow = useSelectionStore((s) => s.setFollow);
   const select = useSelectionStore((s) => s.select);
@@ -30,13 +29,18 @@ export function Inspector() {
   return (
     <section className="panel inspector" aria-label="Inspector">
       <div className="inspector__nav">
-        <button type="button" disabled={history.length === 0} onClick={back} title="Back (Alt+←)">
+        <button
+          type="button"
+          disabled={history.length === 0}
+          onClick={() => navigateSelectionHistory('back')}
+          title="Back (Alt+←)"
+        >
           ←
         </button>
         <button
           type="button"
           disabled={future.length === 0}
-          onClick={forward}
+          onClick={() => navigateSelectionHistory('forward')}
           title="Forward (Alt+→)"
         >
           →

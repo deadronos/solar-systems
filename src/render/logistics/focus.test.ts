@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { distance, vec3 } from '../../sim/index.ts';
 import { DEFAULT_SCENARIO, evaluatePlan } from '../../sim/logistics/index.ts';
 import { Simulation } from '../../sim/simulation.ts';
+import { focusBody, navigateSelectionHistory } from '../../state/actions.ts';
+import { useViewStore } from '../../state/viewStore.ts';
 import { useSelectionStore } from '../../state/selectionStore.ts';
 import {
   cameraTarget,
@@ -84,6 +86,37 @@ describe('ships at a body', () => {
 });
 
 describe('selection history', () => {
+  it('restores the camera focus on body entries while navigating mixed history', () => {
+    const selection = useSelectionStore.getInitialState();
+    const view = useViewStore.getInitialState();
+    useSelectionStore.setState(selection);
+    useViewStore.setState(view);
+    try {
+      focusBody('earth');
+      focusBody('mars');
+      navigateSelectionHistory('back');
+      expect(useViewStore.getState().focusId).toBe('earth');
+      navigateSelectionHistory('forward');
+      expect(useViewStore.getState().focusId).toBe('mars');
+
+      const ship = { kind: 'ship' as const, id: 'A' };
+      selection.select(ship);
+      selection.setFollow(true);
+      navigateSelectionHistory('back');
+      expect(useSelectionStore.getState()).toMatchObject({
+        selected: { kind: 'body', id: 'mars' },
+        follow: false,
+      });
+      expect(useViewStore.getState().focusId).toBe('mars');
+      navigateSelectionHistory('forward');
+      expect(useSelectionStore.getState().selected).toEqual(ship);
+      expect(useViewStore.getState().focusId).toBe('mars');
+    } finally {
+      useSelectionStore.setState(selection);
+      useViewStore.setState(view);
+    }
+  });
+
   it('behaves like browser back/forward', () => {
     const s = useSelectionStore.getState();
     const ref = (id: string) => ({ kind: 'ship' as const, id });
