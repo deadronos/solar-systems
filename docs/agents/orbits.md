@@ -35,7 +35,9 @@ epoch-relative values (see `BeltPoints` epoch rebasing and `TrajectoryLayer` anc
 - `meanElements`: elements at an epoch with uniform mean motion and optional nodal or apsidal
   precession (deg/day). Used for moons (JPL mean elements; the Moon has its 18.6-yr nodal and
   8.85-yr apsidal rates) and for small bodies via `heliocentric({ aAU, … })`, which derives the
-  period from Kepler's third law.
+  period from Kepler's third law. `periodDays` is the sidereal period and sets the rate of
+  mean longitude `M + ω + Ω`. Subtract the rates of `ω` and `Ω` when advancing mean anomaly
+  `M` relative to periapsis. `elementsAt` and `elementRates` use the same anomaly rate.
 - `elementsAt(model, jd)` gives osculating `KeplerElements`. `elementRates(model, jd)` gives their
   time derivatives, which `Ephemeris.helioStateAt` uses for exact analytic velocities.
 - `solveKepler` is Newton–Raphson, valid for all e < 1. There are no hyperbolic orbits in the
@@ -90,3 +92,15 @@ The Sun is fixed at the origin; there are no mutual perturbations; small bodies 
 two-body motion; UTC is used in place of TDB. Moons other than barycentric partners orbit their
 planet's centre, not the pair's barycenter.
 The full list for users is in the README's "Accuracy notes".
+
+The Moon model remains a secular approximation. The table gives Euclidean residuals in km
+against [JPL Horizons](https://ssd-api.jpl.nasa.gov/doc/horizons.html) geometric positions
+(target `301`, center `500@399`, J2000 ecliptic, TDB) for the four epochs in the regression
+test. These samples do not establish a maximum error between epochs.
+
+| Epoch (JD TDB)                | Residual (km) |
+| ----------------------------- | ------------: |
+| J2000 (2451545.0)             |         4,432 |
+| 2020-01-01 (2458849.5)        |         3,617 |
+| 2040-01-01 (2466154.5, start) |         1,349 |
+| 2060-01-01 (2473459.5)        |         4,864 |
