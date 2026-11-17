@@ -11,11 +11,18 @@ export interface RingStyle {
   opacity: number;
 }
 
+export interface AtmosphereStyle {
+  color: string;
+  height: number; // fraction of the equatorial radius
+  strength: number;
+}
+
 export interface Appearance {
   color: string;
   secondary?: string;
   surface: SurfaceStyle;
   rings?: RingStyle;
+  atmosphere?: AtmosphereStyle;
 }
 
 const DEFAULT: Appearance = { color: '#9a958f', surface: 'rocky' };
@@ -23,23 +30,50 @@ const DEFAULT: Appearance = { color: '#9a958f', surface: 'rocky' };
 const APPEARANCES: Record<string, Appearance> = {
   sun: { color: '#ffd27a', surface: 'star' },
   mercury: { color: '#9c9289', secondary: '#6e665f', surface: 'rocky' },
-  venus: { color: '#e8cf9a', secondary: '#c9a96a', surface: 'cloudy' },
-  earth: { color: '#2f6fb7', secondary: '#4f8a3c', surface: 'earth' },
-  mars: { color: '#c1532f', secondary: '#8a3b22', surface: 'rocky' },
-  jupiter: { color: '#d8b48a', secondary: '#a46f4a', surface: 'banded' },
+  venus: {
+    atmosphere: { color: '#fce4b9', height: 0.035, strength: 0.78 },
+    color: '#e8cf9a',
+    secondary: '#c9a96a',
+    surface: 'cloudy',
+  },
+  earth: {
+    atmosphere: { color: '#65aaff', height: 0.035, strength: 0.85 },
+    color: '#2f6fb7',
+    secondary: '#4f8a3c',
+    surface: 'earth',
+  },
+  mars: {
+    atmosphere: { color: '#e9a27e', height: 0.022, strength: 0.64 },
+    color: '#c1532f',
+    secondary: '#8a3b22',
+    surface: 'rocky',
+  },
+  jupiter: {
+    atmosphere: { color: '#e1c0a3', height: 0.02, strength: 0.66 },
+    color: '#d8b48a',
+    secondary: '#a46f4a',
+    surface: 'banded',
+  },
   saturn: {
+    atmosphere: { color: '#efdcb4', height: 0.025, strength: 0.66 },
     color: '#e3cf9c',
     secondary: '#b89c66',
     surface: 'banded',
     rings: { innerKm: 66_900, outerKm: 136_775, color: '#d8c7a0', opacity: 0.85 },
   },
   uranus: {
+    atmosphere: { color: '#a8e4e9', height: 0.028, strength: 0.75 },
     color: '#a6dde3',
     secondary: '#8cc8d0',
     surface: 'banded',
     rings: { innerKm: 41_800, outerKm: 51_150, color: '#8a9aa0', opacity: 0.25 },
   },
-  neptune: { color: '#4a6fd6', secondary: '#3555b0', surface: 'banded' },
+  neptune: {
+    atmosphere: { color: '#629dff', height: 0.028, strength: 0.8 },
+    color: '#4a6fd6',
+    secondary: '#3555b0',
+    surface: 'banded',
+  },
   pluto: { color: '#d9c3a8', secondary: '#8f6e55', surface: 'icy' },
   charon: { color: '#a29a92', surface: 'icy' },
   ceres: { color: '#8d8a86', surface: 'rocky' },
@@ -52,7 +86,12 @@ const APPEARANCES: Record<string, Appearance> = {
   europa: { color: '#d9c9b0', secondary: '#9c7c5c', surface: 'icy' },
   ganymede: { color: '#9e9282', secondary: '#6b5f50', surface: 'rocky' },
   callisto: { color: '#6f6457', secondary: '#4a4138', surface: 'rocky' },
-  titan: { color: '#d9a548', secondary: '#c08a30', surface: 'cloudy' },
+  titan: {
+    atmosphere: { color: '#ffc16a', height: 0.055, strength: 0.95 },
+    color: '#d9a548',
+    secondary: '#c08a30',
+    surface: 'cloudy',
+  },
   enceladus: { color: '#f4f6f8', surface: 'icy' },
   triton: { color: '#d6c8c0', secondary: '#b79d92', surface: 'icy' },
   iapetus: { color: '#8c8070', secondary: '#2d2722', surface: 'rocky' },

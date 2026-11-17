@@ -107,4 +107,15 @@ over 1.4 s.
 
 ## Known gaps
 
-- Visual polish backlog (atmospheres, constellation lines) is in umbrella #9.
+- Visual polish backlog (including constellation lines) is in umbrella #9.
+
+## Body lighting
+
+- Atmospheric shells use a sunlit Fresnel rim with per-body color, height and strength in
+  `appearance.ts`. Shells are hidden below a true projected radius of 10 pixels.
+- The shader uses body-local directions and distances in equatorial radii, independent of the
+  floating origin and minimum display size. Ring shadows sample the radial opacity texture;
+  a ray against the planet ellipsoid shadows the rings. Jupiter receives approximate transits
+  from its Galilean moons. These effects attenuate direct sunlight and keep ambient light.
+- Earth's procedural night texture reuses the land mask and fades out at the terminator.
+  The Sun's corona uses the existing additive sprite.

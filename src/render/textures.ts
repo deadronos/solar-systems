@@ -178,8 +178,9 @@ export function glowTexture(): Texture {
   const ctx = canvas.getContext('2d')!;
   const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
   g.addColorStop(0, 'rgba(255,240,200,1)');
-  g.addColorStop(0.15, 'rgba(255,210,120,0.6)');
-  g.addColorStop(0.4, 'rgba(255,170,60,0.15)');
+  g.addColorStop(0.25, 'rgba(255,229,168,0.55)');
+  g.addColorStop(0.32, 'rgba(255,205,117,0.25)');
+  g.addColorStop(0.52, 'rgba(255,175,68,0.07)');
   g.addColorStop(1, 'rgba(255,150,40,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
@@ -187,4 +188,38 @@ export function glowTexture(): Texture {
   tex.colorSpace = SRGBColorSpace;
   cache.set('glow', tex);
   return tex;
+}
+
+/** Sparse procedural settlements on the same land mask used by Earth's surface. */
+export function earthNightTexture(): Texture {
+  const key = 'earth:night';
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+  const image = ctx.createImageData(canvas.width, canvas.height);
+  const land = makeNoise(hashString('earth'));
+  const settlements = makeNoise(hashString(key));
+  for (let y = 0; y < canvas.height; y++) {
+    const v = y / canvas.height;
+    if (Math.abs(v - 0.5) > 0.36) continue;
+    for (let x = 0; x < canvas.width; x++) {
+      const u = x / canvas.width;
+      if (land(u, v, 5) <= 0.53 || settlements(u, v, 3) < 0.5) continue;
+      const spot = settlements(u * 16, v * 16, 3);
+      if (spot < 0.62) continue;
+      const offset = (y * canvas.width + x) * 4;
+      image.data[offset] = (spot - 0.55) * 900;
+      image.data[offset + 1] = (spot - 0.55) * 620;
+      image.data[offset + 2] = (spot - 0.55) * 310;
+      image.data[offset + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  cache.set(key, texture);
+  return texture;
 }
