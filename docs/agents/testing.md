@@ -66,6 +66,26 @@ perturb the scenario (start date, cash, stocks) instead.
 A new mechanic gets a focused test in its area file, plus an invariant if it touches money,
 stock or population.
 
+## Economy benchmark
+
+Run `pnpm bench:economy` on Node 26 for all cases or pass case names, such as
+`pnpm bench:economy mature fleet`. The script times ticks using thread CPU time; world
+creation, warmup, snapshotting and profiling are outside the timed interval. It profiles a
+replay from the same snapshot with V8's sampling profiler, groups samples by enclosing phase
+when identifiable, and requires identical final snapshot hashes between the two runs.
+
+| Case   | Measured interval                           | Starting ships | Apple M4 baseline | Working target on Apple M4 |
+| ------ | ------------------------------------------- | -------------: | ----------------: | -------------------------: |
+| Early  | First 365 days                              |             16 |     2,072 ticks/s |              1,800 ticks/s |
+| Mature | Year 20 after 19 × 365 days                 |            114 |       440 ticks/s |                400 ticks/s |
+| Fleet  | First 30 days with a requested fleet of 300 |            304 |       211 ticks/s |                190 ticks/s |
+
+Baseline measured with Node 26.12.0. Controllers accounted for 50% of mature and 67% of fleet
+CPU samples, the largest named phase in both. Early-world samples were split mainly between
+controllers (46%) and contracts (33%). Samples without an identifiable phase are reported
+as `other`. Use the provisional targets for local comparisons on an otherwise idle machine.
+The existing CI performance guard still measures the first year independently.
+
 ## Changes that alter the event stream
 
 Any change to economy behaviour changes the event log, so the determinism hash changes too.
