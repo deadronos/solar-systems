@@ -55,7 +55,7 @@ export function BeltPoints({ belt }: { belt: Belt }) {
         size: 1.6,
         sizeAttenuation: false,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.32,
         depthWrite: false,
       }).material,
     [belt.def.id],

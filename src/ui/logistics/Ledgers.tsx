@@ -1,5 +1,6 @@
 import { useId, useState, type KeyboardEvent } from 'react';
 import { netWorth } from '../../sim/logistics/index.ts';
+import { toggleFollowShip } from '../../state/actions.ts';
 import { useSelectionStore } from '../../state/selectionStore.ts';
 import { BodyPicker } from '../BodyPicker.tsx';
 import { EntityLink, useTick, useWorld } from './common.tsx';
@@ -175,39 +176,69 @@ const STATE_LABEL = {
   building: 'building',
 } as const;
 
+const STATE_ORDER = {
+  in_transit: 0,
+  waiting: 1,
+  docked: 2,
+  building: 3,
+} as const;
+
 function Ships() {
   useTick(2);
   const world = useWorld()!;
   const filter = useSelectionStore((s) => s.companyFilter);
+  const selected = useSelectionStore((s) => s.selected);
+  const follow = useSelectionStore((s) => s.follow);
   const rows = [...world.ships.values()]
     .filter((s) => !filter || s.companyId === filter)
-    .toSorted((a, b) => a.companyId.localeCompare(b.companyId) || a.name.localeCompare(b.name));
+    .toSorted(
+      (a, b) =>
+        STATE_ORDER[a.state] - STATE_ORDER[b.state] ||
+        a.companyId.localeCompare(b.companyId) ||
+        a.name.localeCompare(b.name),
+    );
   return (
     <table className="ledger">
       <thead>
         <tr>
           <th>Ship</th>
           <th>Status</th>
+          <th aria-label="Follow" />
         </tr>
       </thead>
       <tbody>
-        {rows.map((s) => (
-          <tr key={s.id}>
-            <td>
-              <span
-                className="swatch"
-                style={{ background: world.companies.get(s.companyId)?.color }}
-              />
-              <EntityLink refTo={{ kind: 'ship', id: s.id }} />
-            </td>
-            <td className="muted">
-              {STATE_LABEL[s.state]}
-              {s.state === 'in_transit' && s.plan
-                ? ` → ${world.settlements.get(s.plan.toSiteId)?.name}`
-                : ''}
-            </td>
-          </tr>
-        ))}
+        {rows.map((s) => {
+          const following = follow && selected?.kind === 'ship' && selected.id === s.id;
+          return (
+            <tr key={s.id}>
+              <td>
+                <span
+                  className="swatch"
+                  style={{ background: world.companies.get(s.companyId)?.color }}
+                />
+                <EntityLink refTo={{ kind: 'ship', id: s.id }} />
+              </td>
+              <td className="muted">
+                {STATE_LABEL[s.state]}
+                {s.state === 'in_transit' && s.plan
+                  ? ` → ${world.settlements.get(s.plan.toSiteId)?.name}`
+                  : ''}
+              </td>
+              <td>
+                <button
+                  type="button"
+                  className={`chip ${following ? 'chip--on' : ''}`}
+                  title={following ? `Stop following ${s.name}` : `Follow ${s.name}`}
+                  aria-label={`Follow ${s.name}`}
+                  aria-pressed={following}
+                  onClick={() => toggleFollowShip(s.id)}
+                >
+                  ◎
+                </button>
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

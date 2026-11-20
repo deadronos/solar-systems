@@ -25,7 +25,7 @@ export interface ViewState {
 /** UI/view state only. Simulation state lives in the sim layer (see SimClock). */
 export const useViewStore = create<ViewState>()((set) => ({
   focusId: 'sun',
-  layers: { orbits: true, moonOrbits: true, labels: true, belts: true, stars: true },
+  layers: { orbits: true, moonOrbits: false, labels: true, belts: true, stars: true },
   minPixelRadius: 2.5,
   setFocus: (focusId) => set({ focusId }),
   toggleLayer: (layer) => set((s) => ({ layers: { ...s.layers, [layer]: !s.layers[layer] } })),

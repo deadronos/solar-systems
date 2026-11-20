@@ -168,9 +168,45 @@ button {
 
 /* Layers */
 .layers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.layers__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px 8px;
+}
+
+.layers__section {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.layers__disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 2px 0;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.layers__disclosure:hover {
+  color: var(--text);
+}
+
+.layers__chevron {
+  font-size: 12px;
 }
 
 .toggle {
@@ -254,11 +290,81 @@ button {
   min-width: 90px;
 }
 
-.hint {
-  margin: 0;
+.hud__controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.hud__controls-row > * {
+  pointer-events: auto;
+}
+
+.shortcuts {
+  position: relative;
+}
+
+.shortcuts__trigger {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
   color: var(--muted);
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+}
+
+.shortcuts__trigger:hover,
+.shortcuts__trigger[aria-expanded='true'] {
+  border-color: rgb(255 207 112 / 0.45);
+  color: var(--accent);
+}
+
+.shortcuts__popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: 260px;
+  z-index: 20;
+}
+
+.shortcuts__popover h2 {
+  margin: 0 0 6px;
   font-size: 11px;
-  text-shadow: 0 1px 2px #000;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.shortcuts__popover dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shortcuts__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+}
+
+.shortcuts__row dt {
+  font-family: var(--mono);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.shortcuts__row dd {
+  margin: 0;
+  color: var(--text);
+  text-align: right;
 }
 
 /* 3D labels */
@@ -384,6 +490,13 @@ button {
   border-style: dashed;
 }
 
+.site-marker--cluster {
+  background: rgb(16 24 42 / 0.78);
+  border-color: rgb(255 207 112 / 0.45);
+  color: var(--accent);
+  font-weight: 500;
+}
+
 .marker--settlement {
   margin-left: 6px;
 }
@@ -435,17 +548,50 @@ button {
   flex-wrap: wrap;
 }
 
-.hud--economy .hint {
-  flex-basis: 100%;
-  text-align: center;
-}
-
 .topbar {
   display: flex;
-  gap: 22px;
+  align-items: center;
+  gap: 18px;
   padding: 6px 14px;
   font-size: 12px;
   font-family: var(--mono);
+}
+
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topbar__action {
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid rgb(255 207 112 / 0.4);
+  background: rgb(255 207 112 / 0.14);
+  color: var(--accent);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.topbar__action--secondary {
+  border-color: var(--border);
+  background: rgb(255 255 255 / 0.06);
+  color: var(--text);
+}
+
+.topbar__action:hover:not(:disabled) {
+  background: rgb(255 207 112 / 0.24);
+}
+
+.topbar__action--secondary:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.12);
+}
+
+.topbar__action:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .up {
@@ -843,6 +989,18 @@ button {
     overflow-wrap: anywhere;
   }
 
+  .hud--economy .topbar__actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px;
+    margin-top: 2px;
+  }
+
+  .hud--economy .topbar__action {
+    min-height: 44px;
+  }
+
   .hud__mobile-nav {
     grid-area: 2 / 1;
     display: grid;
@@ -864,7 +1022,8 @@ button {
   }
 
   .hud--economy .hud__right,
-  .hud--economy .hud__bottom {
+  .hud--economy .hud__bottom,
+  .hud--economy .hud__controls-row {
     display: contents;
   }
 
@@ -910,8 +1069,14 @@ button {
 
   .hud--economy .picker__item,
   .hud--economy .ledger .link,
-  .hud--economy .toggle {
+  .hud--economy .ledger .chip,
+  .hud--economy .toggle,
+  .hud--economy .layers__disclosure {
     min-height: 44px;
+  }
+
+  .hud--economy .ledger .chip {
+    min-width: 44px;
   }
 
   .hud--economy .ledger .link {
@@ -963,7 +1128,7 @@ button {
     width: auto;
   }
 
-  .hud--economy .hint {
+  .hud--economy .shortcuts {
     display: none;
   }
 }
