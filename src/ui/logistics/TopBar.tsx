@@ -1,19 +1,32 @@
 import { useEffect } from 'react';
 import { useSimulation } from '../../render/index.ts';
 import { netWorth } from '../../sim/logistics/index.ts';
-import { navigateSelectionHistory } from '../../state/actions.ts';
+import {
+  activeShipments,
+  followNextShipment,
+  navigateSelectionHistory,
+  resetOverview,
+} from '../../state/actions.ts';
 import { useSelectionStore } from '../../state/selectionStore.ts';
+import { useViewStore } from '../../state/viewStore.ts';
 import { formatRate, formatRateValue } from '../format.ts';
 import { EntityLink, useTick } from './common.tsx';
 import { fmtMoney, fmtTonnes } from './format.ts';
 
-/** Economy at a glance: achieved speed, trade volume, market leader. */
+/** Economy at a glance: achieved speed, trade volume, market leader, and shipment jump. */
 export function TopBar() {
   useTick(2);
   const sim = useSimulation();
   const world = sim.logistics;
+  const companyFilter = useSelectionStore((s) => s.companyFilter);
+  const selected = useSelectionStore((s) => s.selected);
+  const follow = useSelectionStore((s) => s.follow);
+  const focusId = useViewStore((s) => s.focusId);
+  const atOverview = !follow && selected === null && focusId === 'sun';
   useKeyboardShortcuts();
   if (!world) return null;
+  const { inFlight, scheduled } = activeShipments(world, companyFilter);
+  const watchable = inFlight.length + scheduled.length;
   const ranked = [...world.companies.values()]
     .filter((c) => c.status !== 'bankrupt')
     .map((c) => ({ id: c.id, worth: netWorth(world, c.id) }))
@@ -61,11 +74,37 @@ export function TopBar() {
           </span>
         </span>
       )}
+      <span className="topbar__actions">
+        <button
+          type="button"
+          className="topbar__action"
+          disabled={watchable === 0}
+          onClick={() => followNextShipment(world)}
+          title={
+            inFlight.length > 0
+              ? 'Select and follow a ship in flight (click again to cycle)'
+              : scheduled.length > 0
+                ? 'Select and follow a ship awaiting departure'
+                : 'No active shipments yet'
+          }
+        >
+          Watch shipment{inFlight.length > 0 ? ` (${inFlight.length})` : ''}
+        </button>
+        <button
+          type="button"
+          className="topbar__action topbar__action--secondary"
+          disabled={atOverview}
+          onClick={resetOverview}
+          title="Return to system overview (H)"
+        >
+          Overview
+        </button>
+      </span>
     </header>
   );
 }
 
-/** F follow · Esc clear · Alt+←/→ back/forward. */
+/** F follow · H overview · Esc clear · Alt+←/→ back/forward. */
 function useKeyboardShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -73,6 +112,7 @@ function useKeyboardShortcuts() {
       const s = useSelectionStore.getState();
       if (e.key === 'Escape') s.select(null);
       else if ((e.key === 'f' || e.key === 'F') && s.selected) s.setFollow(!s.follow);
+      else if (e.key === 'h' || e.key === 'H') resetOverview();
       else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
         if (navigateSelectionHistory(e.key === 'ArrowLeft' ? 'back' : 'forward'))
           e.preventDefault();

@@ -85,7 +85,7 @@ export function OrbitPath({ def, color }: { def: BodyDefinition; color: string }
   const isMoon = def.kind === 'moon';
 
   const ref = useRef<Line2>(null);
-  const line = useMemo(() => createOrbitLine(color, isMoon ? 0.4 : 0.55), [color, isMoon]);
+  const line = useMemo(() => createOrbitLine(color, isMoon ? 0.28 : 0.34), [color, isMoon]);
 
   useEffect(
     () => () => {

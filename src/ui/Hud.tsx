@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useSimulation } from '../render/index.ts';
 import { useSelectionStore } from '../state/selectionStore.ts';
 import { BodyPicker } from './BodyPicker.tsx';
@@ -19,6 +19,81 @@ const MOBILE_PANELS = [
 ] as const;
 
 type MobilePanel = (typeof MOBILE_PANELS)[number]['id'];
+
+const ECONOMY_SHORTCUTS = [
+  ['Drag / scroll', 'Orbit and zoom'],
+  ['Click', 'Inspect entity'],
+  ['Double-click / F', 'Follow selected'],
+  ['H', 'System overview'],
+  ['Esc', 'Clear selection'],
+  ['Alt+← / →', 'Back / forward'],
+  ['Space', 'Pause / resume (outside controls)'],
+  ['[ / ]', 'Slower / faster'],
+] as const;
+
+const ORRERY_SHORTCUTS = [
+  ['Drag / scroll', 'Orbit and zoom'],
+  ['Click', 'Focus body'],
+  ['Space', 'Pause / resume (outside controls)'],
+  ['[ / ]', 'Slower / faster'],
+  ['R', 'Reverse time'],
+  ['N', 'Jump to now'],
+] as const;
+
+function ShortcutHelp({ economy }: { economy: boolean }) {
+  const [open, setOpen] = useState(false);
+  const popoverId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [open]);
+
+  const items = economy ? ECONOMY_SHORTCUTS : ORRERY_SHORTCUTS;
+  return (
+    <div className="shortcuts" ref={rootRef}>
+      <button
+        type="button"
+        className="shortcuts__trigger"
+        aria-expanded={open}
+        aria-controls={popoverId}
+        aria-label="Keyboard and mouse shortcuts"
+        title="Controls & shortcuts"
+        onClick={() => setOpen((v) => !v)}
+      >
+        ?
+      </button>
+      {open && (
+        <section className="panel shortcuts__popover" id={popoverId} aria-label="Controls">
+          <h2>Controls</h2>
+          <dl>
+            {items.map(([keys, desc]) => (
+              <div key={keys} className="shortcuts__row">
+                <dt>{keys}</dt>
+                <dd>{desc}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
+    </div>
+  );
+}
 
 /** DOM overlay. Reads the sim through the context API only; never touches three.js. */
 export function Hud() {
@@ -79,7 +154,10 @@ export function Hud() {
         </div>
       </div>
       <div className="hud__bottom">
-        <TimeControls />
+        <div className="hud__controls-row">
+          <TimeControls />
+          <ShortcutHelp economy={economy} />
+        </div>
         {economy && (
           <div
             className="hud__drawer"
@@ -91,11 +169,6 @@ export function Hud() {
             </ErrorBoundary>
           </div>
         )}
-        <p className="hint">
-          {economy
-            ? 'Drag to orbit · scroll to zoom · click to inspect · double-click or F to follow · Esc clear · Alt+←/→ back/forward · Space pause (outside controls) · [ ] speed'
-            : 'Drag to orbit · scroll to zoom · click a body or label to focus · Space pause (outside controls) · [ ] speed · R reverse · N now'}
-        </p>
       </div>
     </div>
   );

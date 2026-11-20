@@ -94,7 +94,9 @@ is only a point (see GPU work). A hover-only label has `pointer-events: none`, s
 stays on the canvas that picks the ship:
 
 - React renders them once and registers each element in `frame.labels` under a key: the body
-  id, `settlementLabelKey(id)` or `shipLabelKey(id)`.
+  id, `settlementLabelKey(id)`, `clusterLabelKey(bodyId)`, or `shipLabelKey(id)`. Multi-site
+  stacks collapse into a `<N> sites` cluster badge while zoomed out (host body radius < 10 px
+  and none of its sites selected); clicking the badge focuses that body to expand them.
 - Scene components position them every frame with `placeLabel(el, scenePos, camera, size,
   visible, dx, dy)`, which writes `transform` and `visibility` only when needed.
 - They cost no React renders.

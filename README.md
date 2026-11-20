@@ -44,7 +44,7 @@ pnpm check        # typecheck + lint + format check + tests
 Top bar (speed, trade volume, leader) · tabbed ledgers (companies, places, ships, orders,
 bodies) · inspectors for ships, places, companies and orders with click-through links ·
 activity feed · map overlays (ships, trade flows, all routes, supply status).
-Click to inspect · **F** or _Follow_ to ride along · **Esc** clear · **Alt+←/→** back/forward.
+Click to inspect · **F** or _Follow_ to ride along · **H** overview · **Esc** clear · **Alt+←/→** back/forward.
 In economy mode time only runs forward, up to 1 year/s.
 
 ## Controls

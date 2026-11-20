@@ -46,7 +46,7 @@ export const useSelectionStore = create<SelectionState>()((set) => ({
   future: [],
   follow: false,
   companyFilter: null,
-  overlays: { tradeFlows: false, allTrajectories: false, shortages: false, ships: true },
+  overlays: { tradeFlows: false, allTrajectories: true, shortages: false, ships: true },
   hoveredShip: null,
   select: (ref) =>
     set((s) => {

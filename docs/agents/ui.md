@@ -9,13 +9,16 @@ The HUD panels, how they read the simulation, and the zustand stores. Read this 
 
 ## Layout
 
-`Hud` lays out regions: top (`TopBar`), left, right, and bottom (`TimeControls`,
-`EventFeed`, the key hint).
+`Hud` lays out regions: top (`TopBar`, including "Watch shipment" and "Overview" actions),
+left, right (`Inspector` / `InfoPanel` and `LayerToggles`), and bottom (`TimeControls`,
+a collapsible `?` shortcuts popover, and `EventFeed`).
 
 - **Economy mode** (`sim.logistics !== null`): `Ledgers` on the left and `Inspector` on the
-  right. At widths up to 760 px, a compact row opens Ledgers, Details, Layers, or Activity.
-  The panels share one scrollable drawer position, start closed, and open one at a time.
-  Time controls remain visible and the exposed map still receives pointer input.
+  right. `LayerToggles` surfaces the four economy overlays directly and collapses the map/orrery
+  layers behind a `Map layers` disclosure. At widths up to 760 px, a compact row opens Ledgers,
+  Details, Layers, or Activity. The panels share one scrollable drawer position, start closed,
+  and open one at a time. Time controls remain visible and the exposed map still receives pointer
+  input.
 - **Orrery mode:** `BodyPicker` and `InfoPanel`.
 - Each independent region is wrapped in `<ErrorBoundary label="…">`. Pass `resetKey` when the
   subject changes, e.g. the inspector resets on selection change.
@@ -40,18 +43,22 @@ Never write to the sim from the UI except through its public control API (`clock
 
 ## State (zustand)
 
-- `useViewStore`: `focusId` (the floating origin), `layers` (orbits, moon orbits, labels,
-  belts, stars), `minPixelRadius`.
+- `useViewStore`: `focusId` (the floating origin), `layers` (orbits, moon orbits [off by
+  default], labels, belts, stars), `minPixelRadius`.
 - `useSelectionStore`:
   - `selected` (`EntityRef { kind, id }`), with back/forward history capped at 50;
-  - `follow`, `companyFilter` and map `overlays`;
+  - `follow`, `companyFilter` and map `overlays` (`ships` and `allTrajectories` on by default;
+    `tradeFlows` and `shortages` off);
   - `hoveredShip`: the ship under the pointer in the scene, set by `ShipLayer` on pointer
     moves when it changes (it shows that ship's label).
 - Cross-store actions live in `state/actions.ts`. For example, `focusBody` clears follow, sets
-  focus and selects. Inspector buttons and keyboard shortcuts use `navigateSelectionHistory`
-  to restore body focus and clear follow when history lands on a body. Other history entries
-  preserve the current camera settings. Use these actions rather than poking two stores from
-  a component.
+  focus and selects; `followNextShipment` selects and follows the next active shipment (cycling
+  through ships in flight, or scheduled departures if none are in flight yet); `toggleFollowShip`
+  toggles follow for a specific ship (used by the in-flight-first `Ships` ledger); `resetOverview`
+  returns to Sun focus with nothing selected or followed. Inspector buttons and keyboard shortcuts
+  use `navigateSelectionHistory` to restore body focus and clear follow when history lands on a
+  body. Other history entries preserve the current camera settings. Use these actions rather than
+  poking two stores from a component.
 - Stores hold UI state only. Never copy simulation entities into them; store ids.
 
 ## Entities and formatting
@@ -73,9 +80,10 @@ interactive controls and handled events. `TopBar` ignores inputs and selects:
 
 - Space pauses or resumes outside interactive controls. `[` and `]` change speed.
   `R` reverses and `N` jumps to now (orrery mode only).
-- Esc clears the selection; `F` toggles follow; Alt+←/→ goes back and forward.
+- Esc clears the selection; `F` toggles follow; `H` resets to the Sun overview; Alt+←/→ goes back
+  and forward.
 
-Update the hint text in `Hud.tsx` and the README controls table when shortcuts change.
+Update the shortcut list in `Hud.tsx` and the README controls table when shortcuts change.
 
 Ledger tabs use Left/Right to switch views and Home/End to jump to the first/last view.
 Space and Enter activate the focused tab using native button behavior.
